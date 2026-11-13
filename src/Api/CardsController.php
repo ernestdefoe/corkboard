@@ -27,7 +27,7 @@ use Psr\Http\Message\ServerRequestInterface;
  * PATCH  /corkboard/comments/{id}            content         DELETE /corkboard/comments/{id}
  * GET    /corkboard/cards/{id}/activity?before=
  * POST   /corkboard/cards/{id}/checklist     text, afterId?
- * PATCH  /corkboard/checklist/{id}           text, isDone, afterId, userId   DELETE /corkboard/checklist/{id}
+ * PATCH  /corkboard/checklist/{id}           text, isDone, afterId   DELETE /corkboard/checklist/{id}
  *
  * Writes answer with the card as the board draws it (slim) plus the board's new version, so the
  * browser that made the change doesn't refetch the board for it.

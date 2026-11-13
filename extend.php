@@ -96,6 +96,10 @@ $extenders = [
         ->post('/corkboard/feed-token', 'corkboard.feed.renewToken', Api\FeedController::class)
         ->get('/corkboard/feed/{token:[A-Za-z0-9]{40}}', 'corkboard.feed.ics', Api\FeedController::class),
 
+    // Writes that tell other people (cards, comments, boards, team): at most 30 a minute per member.
+    (new Extend\ThrottleApi())
+        ->set('corkboard', fn ($request) => resolve(\ErnestDefoe\Corkboard\Throttle::class)($request)),
+
     (new Extend\ModelVisibility(Board::class))
         ->scope(\ErnestDefoe\Corkboard\Scope\BoardVisibility::class),
     (new Extend\ModelVisibility(Card::class))
@@ -130,11 +134,13 @@ $extenders = [
         ->registerPreference('notify_corkboardTeamAdded_email', 'boolval', true)
         ->registerPreference('notify_corkboardCompleted_email', 'boolval', false),
 
-    // The "On <board> · <column>" chip, only once some card links a discussion (no query before).
+    // The "On <board> · <column>" chip: only once some card links a discussion (no query before), and
+    // only where discussions themselves are listed or shown (not on every post that includes one).
     (new Extend\ApiResource(DiscussionResource::class))
         ->fields(fn () => [
             Schema\Arr::make('corkboardCards')
-                ->visible(fn () => (bool) resolve(\Flarum\Settings\SettingsRepositoryInterface::class)->get('ernestdefoe-corkboard.linked'))
+                ->visible(fn ($discussion, Context $context) => ($context->listing(DiscussionResource::class) || $context->showing(DiscussionResource::class))
+                    && (bool) resolve(\Flarum\Settings\SettingsRepositoryInterface::class)->get('ernestdefoe-corkboard.linked'))
                 ->get(fn ($discussion, Context $context) => resolve(Api\DiscussionCards::class)($discussion, $context)),
         ]),
 

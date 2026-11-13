@@ -14,8 +14,8 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
- * GET  /corkboard/feed-token          the viewer's private calendar link (made on first ask)
- * POST /corkboard/feed-token          a new link; the old one stops working
+ * GET  /corkboard/feed-token          the viewer's private calendar link, or null before they make one
+ * POST /corkboard/feed-token          make one (a new one: the old link stops working)
  * GET  /corkboard/feed/{token}        the calendar: due dates of the cards assigned to its owner
  *
  * 🚨 No ".ics" on the route: nginx serves anything ending in a file extension from disk and PHP
@@ -30,13 +30,13 @@ class FeedController extends Controller
     ) {
     }
 
-    /** @return array<string, string> */
+    /** @return array<string, string|null> a GET changes nothing: an image tag on another site can't make one */
     protected function token(ServerRequestInterface $request, User $actor): array
     {
         $actor->assertRegistered();
-        $token = $actor->getAttribute('corkboard_feed_token') ?: $this->renew($actor);
+        $token = $actor->getAttribute('corkboard_feed_token');
 
-        return ['url' => $this->url->to('api')->route('corkboard.feed.ics', ['token' => $token])];
+        return ['url' => $token ? $this->url->to('api')->route('corkboard.feed.ics', ['token' => $token]) : null];
     }
 
     /** @return array<string, string> */

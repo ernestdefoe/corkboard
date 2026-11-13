@@ -28,6 +28,8 @@ module.exports = (...args) => {
   if (typeof base === 'function') base = base(...args);
 
   base.optimization = { ...base.optimization, chunkIds: false };
+  // Our own chunk-loading global too, so no other extension's chunks share the array.
+  base.output = { ...base.output, chunkLoadingGlobal: 'webpackChunk_ernestdefoe_corkboard' };
   base.plugins = [...(base.plugins || []), new NamespacedChunkIds()];
 
   return base;

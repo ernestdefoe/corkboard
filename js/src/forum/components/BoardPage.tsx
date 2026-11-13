@@ -218,12 +218,12 @@ export default class BoardPage extends Page {
 
   team(): Mithril.Children {
     const data = this.state.data!;
-    const ids = [data.board.ownerId, ...data.members.filter((m) => m.userId).map((m) => m.userId)].filter(
+    const ids = [data.board.ownerId, ...data.members.filter((member) => member.userId).map((member) => member.userId)].filter(
       (id, i, a) => id && a.indexOf(id) === i
     ) as number[];
     const groups = data.members
-      .filter((m) => m.groupId)
-      .map((m) => data.groups[m.groupId!])
+      .filter((member) => member.groupId)
+      .map((member) => data.groups[member.groupId!])
       .filter(Boolean);
     if (!ids.length && !groups.length) return null;
     return (

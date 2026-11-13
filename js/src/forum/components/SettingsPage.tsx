@@ -260,14 +260,14 @@ export default class SettingsPage extends Page {
     const b = data.board;
     if (b.visibility === 'public') return t('settings.reach_public');
     if (b.visibility === 'members') return t('settings.reach_members');
-    const people = new Set<number>([b.ownerId || 0, ...data.members.filter((m) => m.userId).map((m) => m.userId!)]);
+    const people = new Set<number>([b.ownerId || 0, ...data.members.filter((member) => member.userId).map((member) => member.userId!)]);
     people.delete(0);
     const groups =
       b.visibility === 'private'
         ? []
         : data.members
-            .filter((m) => m.groupId)
-            .map((m) => data.groups[m.groupId!])
+            .filter((member) => member.groupId)
+            .map((member) => data.groups[member.groupId!])
             .filter(Boolean);
     if (groups.some((g) => g.count === null)) return t('settings.reach_members');
     const inGroups = groups.reduce((n, g) => n + (g.count || 0), 0);
@@ -280,7 +280,7 @@ export default class SettingsPage extends Page {
 
   changeVisibility(v: Visibility): void {
     const data = this.state.data!;
-    if (v === 'private' && data.members.some((m) => m.groupId) && !confirm(tx('settings.private_confirm'))) return;
+    if (v === 'private' && data.members.some((member) => member.groupId) && !confirm(tx('settings.private_confirm'))) return;
     this.save({ visibility: v });
   }
 

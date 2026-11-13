@@ -36,15 +36,12 @@ class Checklist
         return $item;
     }
 
-    /** @param array<string, mixed> $in text, isDone, afterId, userId */
+    /** @param array<string, mixed> $in text, isDone, afterId */
     public function update(ChecklistItem $item, Card $card, User $actor, array $in): ChecklistItem
     {
         $this->access->assert($card->board, $actor, 'editor');
         if (array_key_exists('text', $in)) {
             $item->text = $this->text($in['text']);
-        }
-        if (array_key_exists('userId', $in)) {
-            $item->user_id = $in['userId'] ? (int) $in['userId'] : null;
         }
         if (array_key_exists('afterId', $in)) {
             $item->position = $this->positions->place('corkboard_checklist', 'card_id', $card->id, $in['afterId'] === null ? null : (int) $in['afterId'], $item->id);

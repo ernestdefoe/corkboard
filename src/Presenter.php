@@ -59,7 +59,7 @@ class Presenter
             'board' => $this->boardSummary($board) + [
                 'description' => $board->description,
                 'tagId' => $board->tag_id,
-                'tag' => $board->tag_id ? $this->tag($board->tag_id) : null,
+                'tag' => $board->tag_id ? $this->tag($board->tag_id, $actor) : null,
                 'projectId' => $board->project_id,
                 'project' => $board->project_id ? $this->project($board->project_id, $actor) : null,
             ],
@@ -318,12 +318,13 @@ class Presenter
     }
 
     /** @return array<string, mixed>|null */
-    private function tag(int $id): ?array
+    private function tag(int $id, User $actor): ?array
     {
         if (! resolve(Extensions::class)->tags()) {
             return null;
         }
-        $tag = $this->db->table('tags')->where('id', $id)->first(['id', 'name', 'slug', 'color']);
+        // A restricted tag's name is only for people who may see the tag.
+        $tag = \Flarum\Tags\Tag::whereVisibleTo($actor)->whereKey($id)->first(['id', 'name', 'slug', 'color']);
 
         return $tag ? ['id' => (int) $tag->id, 'name' => $tag->name, 'slug' => $tag->slug, 'color' => $tag->color] : null;
     }

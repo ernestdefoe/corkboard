@@ -768,7 +768,7 @@ export default class CardModal extends Modal<CardModalAttrs> {
       );
     }
     const data = this.attrs.board.data!;
-    const team = [data.board.ownerId, ...data.members.filter((m) => m.userId).map((m) => m.userId)]
+    const team = [data.board.ownerId, ...data.members.filter((member) => member.userId).map((member) => member.userId)]
       .filter((id, i, a) => id && a.indexOf(id) === i && !card.assigneeIds.includes(id as number))
       .map((id) => data.users[id as number])
       .filter(Boolean) as Person[];

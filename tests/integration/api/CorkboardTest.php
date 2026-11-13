@@ -271,6 +271,8 @@ class CorkboardTest extends TestCase
     {
         $this->call('PATCH', '/cards/200', 3, ['assigneeIds' => [4], 'dueAt' => '2030-04-17T15:00:00Z']);
         [, $json] = $this->call('GET', '/feed-token', 4);
+        $this->assertNull($json['url'], 'a GET makes no link');
+        [, $json] = $this->call('POST', '/feed-token', 4);
         $token = substr($json['url'], -40);
         [$status, , $raw] = $this->call('GET', '/feed/'.$token, null);
         $this->assertSame(200, $status);
@@ -370,5 +372,44 @@ class CorkboardTest extends TestCase
         $ids = fn (?int $as) => array_column($this->call('GET', '/boards?tab=all&project=9', $as)[1]['boards'], 'id');
         $this->assertSame([1], $ids(2));
         $this->assertEqualsCanonicalizing([1, 2], $ids(4));
+    }
+
+    #[Test]
+    public function a_flood_of_comments_is_slowed_down(): void
+    {
+        $statuses = [];
+        for ($i = 0; $i < 31; $i++) {
+            [$statuses[]] = $this->call('POST', '/cards/200/comments', 4, ['content' => "Note $i"]);
+        }
+        $this->assertSame(200, $statuses[28]);
+        $this->assertSame(429, $statuses[30]);
+        // Moderators aren't limited.
+        [$status] = $this->call('POST', '/cards/200/comments', 6, ['content' => 'Still here']);
+        $this->assertSame(200, $status);
+    }
+
+    #[Test]
+    public function nobody_reaches_another_boards_things_by_changing_an_id(): void
+    {
+        // Volunteers (user 5) can't see private board 3: its card, column and members are 404s.
+        $this->assertSame(404, $this->call('PATCH', '/cards/300', 5, ['title' => 'x'])[0]);
+        $this->assertSame(404, $this->call('POST', '/cards/300/comments', 5, ['content' => 'x'])[0]);
+        $this->assertSame(404, $this->call('PATCH', '/columns/31', 5, ['title' => 'x'])[0]);
+        $this->assertSame(404, $this->call('PATCH', '/members/3', 5, ['role' => 'manager'])[0]);
+        // A viewer of public board 1 can't change its structure, cards or checklist.
+        $this->assertSame(403, $this->call('DELETE', '/columns/12', 2)[0]);
+        $this->assertSame(403, $this->call('POST', '/cards/100/checklist', 2, ['text' => 'x'])[0]);
+        $this->assertSame(403, $this->call('POST', '/boards/1/labels', 2, ['name' => 'x'])[0]);
+        // An editor can't move a card into another board's column, or label it with another board's label.
+        $this->assertSame(422, $this->call('PATCH', '/cards/200', 4, ['columnId' => 11])[0]);
+        $this->database()->table('corkboard_labels')->insert(['id' => 90, 'board_id' => 1, 'name' => 'Other', 'color' => '#1971c2', 'position' => 0]);
+        [, $json] = $this->call('PATCH', '/cards/200', 4, ['labelIds' => [90]]);
+        $this->assertSame([], $json['card']['labelIds']);
+        // Someone else's comment can't be edited, only deleted by a manager.
+        [, $json] = $this->call('POST', '/cards/200/comments', 4, ['content' => 'Mine']);
+        $id = $json['comments'][0]['id'];
+        $this->assertSame(403, $this->call('PATCH', "/comments/$id", 5, ['content' => 'Changed'])[0]);
+        $this->assertSame(403, $this->call('DELETE', "/comments/$id", 5)[0]);
+        $this->assertSame(204, $this->call('DELETE', "/comments/$id", 3)[0]);
     }
 }
