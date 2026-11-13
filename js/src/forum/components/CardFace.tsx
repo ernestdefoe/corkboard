@@ -41,7 +41,10 @@ export const CardFace = {
           </span>
         ) : null}
         {card.checklistTotal ? (
-          <span className={'CorkboardCard-stat' + (card.checklistDone === card.checklistTotal ? ' is-complete' : '')} title={tx('card.checklist_count', { done: card.checklistDone, total: card.checklistTotal })}>
+          <span
+            className={'CorkboardCard-stat' + (card.checklistDone === card.checklistTotal ? ' is-complete' : '')}
+            title={tx('card.checklist_count', { done: card.checklistDone, total: card.checklistTotal })}
+          >
             <Icon name="far fa-square-check" />
             {card.checklistDone}/{card.checklistTotal}
           </span>

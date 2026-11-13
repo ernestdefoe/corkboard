@@ -164,8 +164,8 @@ export class BoardDrag {
     const strip = this.root.querySelector(STRIP) as HTMLElement | null;
     if (strip) {
       const r = strip.getBoundingClientRect();
-      if (this.x < r.left + EDGE_PX) strip.scrollLeft -= 12;
-      else if (this.x > r.right - EDGE_PX) strip.scrollLeft += 12;
+      if (this.x < r.left + EDGE_PX) strip.scrollLeft -= 8;
+      else if (this.x > r.right - EDGE_PX) strip.scrollLeft += 8;
     }
     const list = this.columnAt()?.querySelector(LIST) as HTMLElement | null;
     if (list) {

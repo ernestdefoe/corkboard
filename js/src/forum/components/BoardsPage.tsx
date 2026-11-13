@@ -96,7 +96,11 @@ export default class BoardsPage extends Page {
         <div className="CorkboardBoardsPage-head">
           <h1 className="CorkboardBoardsPage-title">{t('nav')}</h1>
           {canCreate ? (
-            <Button className="Button Button--primary" icon="fas fa-plus" onclick={() => app.modal.show(CreateBoardModal, { templates: this.templates || undefined })}>
+            <Button
+              className="Button Button--primary"
+              icon="fas fa-plus"
+              onclick={() => app.modal.show(CreateBoardModal, { templates: this.templates || undefined })}
+            >
               {t('list.start')}
             </Button>
           ) : null}
@@ -104,7 +108,12 @@ export default class BoardsPage extends Page {
         <div className="CorkboardBoardsPage-toolbar">
           <div className="CorkboardSegments" role="tablist">
             {tabs.map((tab) => (
-              <button role="tab" aria-selected={this.tab === tab ? 'true' : 'false'} className={classList('CorkboardSegments-tab', this.tab === tab && 'is-active')} onclick={() => this.setTab(tab)}>
+              <button
+                role="tab"
+                aria-selected={this.tab === tab ? 'true' : 'false'}
+                className={classList('CorkboardSegments-tab', this.tab === tab && 'is-active')}
+                onclick={() => this.setTab(tab)}
+              >
                 {t('list.tab_' + tab)}
               </button>
             ))}
@@ -125,7 +134,9 @@ export default class BoardsPage extends Page {
         {this.pinned.length && !this.query && (this.tab === 'mine' || this.tab === 'all') ? this.section(tx('list.pinned'), this.pinned) : null}
         {rest.length ? this.section(this.pinned.length && !this.query ? tx('list.tab_' + this.tab) : null, rest) : null}
         {this.loading ? <LoadingIndicator display="block" /> : null}
-        {!this.loading && !rest.length && !this.pinned.length ? <p className="CorkboardEmpty">{t(this.query ? 'list.none_found' : 'list.none_' + this.tab)}</p> : null}
+        {!this.loading && !rest.length && !this.pinned.length ? (
+          <p className="CorkboardEmpty">{t(this.query ? 'list.none_found' : 'list.none_' + this.tab)}</p>
+        ) : null}
         {this.more && !this.loading ? (
           <Button className="Button Button--block" onclick={() => this.load(this.page + 1)}>
             {t('list.more')}
@@ -160,7 +171,14 @@ export default class BoardsPage extends Page {
             </span>
           </span>
           {b.description ? <span className="CorkboardTile-description">{b.description}</span> : null}
-          <span className="CorkboardProgress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={pct} aria-label={tx('list.progress', { done: b.doneCount, total: b.cardCount })}>
+          <span
+            className="CorkboardProgress"
+            role="progressbar"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow={pct}
+            aria-label={tx('list.progress', { done: b.doneCount, total: b.cardCount })}
+          >
             <span className="CorkboardProgress-bar" style={{ width: `${pct}%` }} />
           </span>
           <span className="CorkboardTile-meta">

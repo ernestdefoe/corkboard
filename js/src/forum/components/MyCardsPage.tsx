@@ -68,10 +68,18 @@ export default class MyCardsPage extends Page {
         ) : (
           [
             <div className="CorkboardFilters">
-              <button className={classList('CorkboardToggle', this.owned && 'is-on')} aria-pressed={this.owned ? 'true' : 'false'} onclick={() => ((this.owned = !this.owned), this.load())}>
+              <button
+                className={classList('CorkboardToggle', this.owned && 'is-on')}
+                aria-pressed={this.owned ? 'true' : 'false'}
+                onclick={() => ((this.owned = !this.owned), this.load())}
+              >
                 {t('mine.owned')}
               </button>
-              <button className={classList('CorkboardToggle', this.done && 'is-on')} aria-pressed={this.done ? 'true' : 'false'} onclick={() => ((this.done = !this.done), this.load())}>
+              <button
+                className={classList('CorkboardToggle', this.done && 'is-on')}
+                aria-pressed={this.done ? 'true' : 'false'}
+                onclick={() => ((this.done = !this.done), this.load())}
+              >
                 {t('mine.done')}
               </button>
               <span className="CorkboardFilters-summary">{t('mine.count', { count: this.total })}</span>
@@ -102,7 +110,13 @@ export default class MyCardsPage extends Page {
         <p className="helpText">{t('mine.calendar_help')}</p>
         {this.feed ? (
           <div className="CorkboardCardModal-inline">
-            <input className="FormControl" readonly value={this.feed} aria-label={tx('mine.calendar')} onfocus={(e: Event) => (e.target as HTMLInputElement).select()} />
+            <input
+              className="FormControl"
+              readonly
+              value={this.feed}
+              aria-label={tx('mine.calendar')}
+              onfocus={(e: Event) => (e.target as HTMLInputElement).select()}
+            />
             <Button
               className="Button"
               onclick={() => {
@@ -129,7 +143,9 @@ export function cardRow(c: ListCard): Mithril.Children {
     <li className={classList('CorkboardCardList-item', c.completedAt && 'is-done')}>
       <Link href={boardUrl({ id: c.boardId, slug: c.boardSlug }, c.id)}>
         <span className="CorkboardCardList-title">
-          {c.priority !== 'none' ? <span className={'CorkboardPriority-dot ' + PRIORITY_CLASS[c.priority]} title={tx('priority.' + c.priority)} /> : null}
+          {c.priority !== 'none' ? (
+            <span className={'CorkboardPriority-dot ' + PRIORITY_CLASS[c.priority]} title={tx('priority.' + c.priority)} />
+          ) : null}
           {c.title}
         </span>
         <span className="CorkboardCardList-where">{c.column}</span>

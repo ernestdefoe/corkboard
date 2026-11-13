@@ -60,7 +60,11 @@ export default class CorkboardWidget extends Component<WidgetAttrs> {
 
   due(s: Record<string, any>): Mithril.Children {
     const board = String(s.board || '').replace(/\D/g, '');
-    const { data, loading } = fetchWidget('/due-soon', { days: Number(s.days) || 3, limit: Math.max(1, Math.min(10, Number(s.count) || 5)), board: board || undefined });
+    const { data, loading } = fetchWidget('/due-soon', {
+      days: Number(s.days) || 3,
+      limit: Math.max(1, Math.min(10, Number(s.count) || 5)),
+      board: board || undefined,
+    });
     if (loading) return <LoadingIndicator size="small" />;
     if (!data || data.error) return null;
     if (!data.cards.length) return <p className="CorkboardWidget-empty">{t('widget.due_empty')}</p>;
@@ -76,7 +80,10 @@ export default class CorkboardWidget extends Component<WidgetAttrs> {
 
   progress(s: Record<string, any>): Mithril.Children {
     const id = String(s.board || '').replace(/\D/g, '');
-    if (!id) return app.session.user && app.forum.attribute('corkboardCanModerate') ? <p className="CorkboardWidget-empty">{t('widget.progress_pick')}</p> : null;
+    if (!id)
+      return app.session.user && app.forum.attribute('corkboardCanModerate') ? (
+        <p className="CorkboardWidget-empty">{t('widget.progress_pick')}</p>
+      ) : null;
     const { data, loading } = fetchWidget(`/progress/${id}`, {});
     if (loading) return <LoadingIndicator size="small" />;
     if (!data || data.error) return null;
@@ -88,7 +95,13 @@ export default class CorkboardWidget extends Component<WidgetAttrs> {
       </Link>,
       <div className="CorkboardStack" role="img" aria-label={tx('list.progress', { done, total })}>
         {data.columns.map((c: any, i: number) =>
-          c.count ? <span className={classList('CorkboardStack-part', c.isDone && 'is-done')} style={{ flexGrow: c.count, opacity: c.isDone ? 1 : 0.35 + (0.5 * i) / Math.max(1, data.columns.length) }} title={`${c.title}: ${c.count}`} /> : null
+          c.count ? (
+            <span
+              className={classList('CorkboardStack-part', c.isDone && 'is-done')}
+              style={{ flexGrow: c.count, opacity: c.isDone ? 1 : 0.35 + (0.5 * i) / Math.max(1, data.columns.length) }}
+              title={`${c.title}: ${c.count}`}
+            />
+          ) : null
         )}
       </div>,
       <p className="CorkboardWidget-summary">{t('list.progress', { done, total })}</p>,
@@ -99,7 +112,11 @@ export default class CorkboardWidget extends Component<WidgetAttrs> {
           </li>
         ))}
       </ul>,
-      s.next !== false && data.next.length ? <ul className="CorkboardWidget-list">{data.next.map((c: any) => this.row({ ...c, boardId: data.board.id, boardSlug: data.board.slug }, null))}</ul> : null,
+      s.next !== false && data.next.length ? (
+        <ul className="CorkboardWidget-list">
+          {data.next.map((c: any) => this.row({ ...c, boardId: data.board.id, boardSlug: data.board.slug }, null))}
+        </ul>
+      ) : null,
     ];
   }
 

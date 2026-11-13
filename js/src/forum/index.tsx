@@ -11,6 +11,7 @@ import type Mithril from 'mithril';
 import { CorkboardBoard, CorkboardCard } from './models';
 import { registerFof, registerPageBuilder } from './widgets/hosts';
 import { boardUrl, t, ui } from './util';
+import ProjectBoards from './ProjectBoards';
 
 export { default as CorkboardWidget } from './widgets/Widget';
 
@@ -46,7 +47,11 @@ function notificationComponent(type: string) {
     content() {
       const n: any = this.attrs.notification;
       const subject: any = n.subject();
-      return t(`notification.${type}`, { user: n.fromUser(), card: subject?.title?.() || '', board: subject?.boardTitle ? subject.boardTitle() : subject?.title?.() || '' });
+      return t(`notification.${type}`, {
+        user: n.fromUser(),
+        card: subject?.title?.() || '',
+        board: subject?.boardTitle ? subject.boardTitle() : subject?.title?.() || '',
+      });
     }
     excerpt() {
       const subject: any = (this.attrs.notification as any).subject();
@@ -62,7 +67,11 @@ function chips(discussion: any): Mithril.Children {
   return (
     <span className="CorkboardDiscussionChips">
       {cards.slice(0, 3).map((c) => (
-        <Link className="CorkboardDiscussionChip" href={boardUrl({ id: c.boardId, slug: c.slug }, c.cardId)} style={c.color ? { '--board-color': c.color } : {}}>
+        <Link
+          className="CorkboardDiscussionChip"
+          href={boardUrl({ id: c.boardId, slug: c.slug }, c.cardId)}
+          style={c.color ? { '--board-color': c.color } : {}}
+        >
           <Icon name="fas fa-table-columns" />
           {t('discussion.chip', { board: c.board, column: c.column })}
         </Link>
@@ -103,7 +112,8 @@ app.initializers.add('ernestdefoe-corkboard', () => {
   extend('flarum/forum/components/IndexSidebar', 'navItems', function (items: ItemList<Mithril.Children>) {
     if (app.forum.attribute('corkboardNav') === false || !app.forum.attribute('corkboardCanView')) return;
     items.add('corkboard', LinkButton.component({ href: app.route('corkboard.index'), icon: 'fas fa-table-columns' }, t('nav')), 72);
-    if (app.session.user) items.add('corkboardMine', LinkButton.component({ href: app.route('corkboard.mine'), icon: 'fas fa-id-card' }, t('mine.title')), 71);
+    if (app.session.user)
+      items.add('corkboardMine', LinkButton.component({ href: app.route('corkboard.mine'), icon: 'fas fa-id-card' }, t('mine.title')), 71);
   });
 
   // The chip under a discussion's title in lists and on the discussion itself.
@@ -116,11 +126,21 @@ app.initializers.add('ernestdefoe-corkboard', () => {
     if (chip) items.add('corkboard', chip, -5);
   });
 
+  // ernestdefoe/projects: a project's boards on its page (its page is a lazy chunk: extended by name).
+  if ('ernestdefoe-projects' in ((window as any).flarum?.extensions || {})) {
+    override('ext:ernestdefoe/projects/forum/components/ProjectPage', 'management', function (this: any, original: any, project: any) {
+      return [<ProjectBoards project={project} />, original(project)];
+    });
+  }
+
   extend(DiscussionControls, 'userControls', function (items: ItemList<Mithril.Children>, discussion: any) {
     if (!app.session.user || !app.forum.attribute('corkboardCanView')) return;
     items.add(
       'corkboard',
-      Button.component({ icon: 'fas fa-table-columns', onclick: () => ui().then(({ AddToBoardModal }) => app.modal.show(AddToBoardModal, { discussion })) }, t('discussion.add')),
+      Button.component(
+        { icon: 'fas fa-table-columns', onclick: () => ui().then(({ AddToBoardModal }) => app.modal.show(AddToBoardModal, { discussion })) },
+        t('discussion.add')
+      ),
       -10
     );
   });

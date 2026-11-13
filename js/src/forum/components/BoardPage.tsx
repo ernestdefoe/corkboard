@@ -218,8 +218,13 @@ export default class BoardPage extends Page {
 
   team(): Mithril.Children {
     const data = this.state.data!;
-    const ids = [data.board.ownerId, ...data.members.filter((m) => m.userId).map((m) => m.userId)].filter((id, i, a) => id && a.indexOf(id) === i) as number[];
-    const groups = data.members.filter((m) => m.groupId).map((m) => data.groups[m.groupId!]).filter(Boolean);
+    const ids = [data.board.ownerId, ...data.members.filter((m) => m.userId).map((m) => m.userId)].filter(
+      (id, i, a) => id && a.indexOf(id) === i
+    ) as number[];
+    const groups = data.members
+      .filter((m) => m.groupId)
+      .map((m) => data.groups[m.groupId!])
+      .filter(Boolean);
     if (!ids.length && !groups.length) return null;
     return (
       <div className="CorkboardTeam" aria-label={tx('board.team')}>
@@ -257,7 +262,12 @@ export default class BoardPage extends Page {
     // Core's Select markup, so it gets the theme's caret.
     const select = (key: keyof Filters, options: Array<[string, any]>, label: string) => (
       <span className={classList('Select CorkboardFilters-select', f[key] ? 'is-on' : '')}>
-        <select className="Select-input FormControl" aria-label={label} value={String(f[key] ?? '')} onchange={(e: Event) => this.setFilter(key, (e.target as HTMLSelectElement).value)}>
+        <select
+          className="Select-input FormControl"
+          aria-label={label}
+          value={String(f[key] ?? '')}
+          onchange={(e: Event) => this.setFilter(key, (e.target as HTMLSelectElement).value)}
+        >
           {options.map(([value, text]) => (
             <option value={value}>{text}</option>
           ))}
@@ -267,7 +277,11 @@ export default class BoardPage extends Page {
     );
     return (
       <div className={classList('CorkboardFilters', this.filtersOpen && 'is-open')}>
-        <button className={classList('CorkboardToggle CorkboardFilters-toggle', this.filtering() && 'is-on')} aria-expanded={this.filtersOpen ? 'true' : 'false'} onclick={() => (this.filtersOpen = !this.filtersOpen)}>
+        <button
+          className={classList('CorkboardToggle CorkboardFilters-toggle', this.filtering() && 'is-on')}
+          aria-expanded={this.filtersOpen ? 'true' : 'false'}
+          onclick={() => (this.filtersOpen = !this.filtersOpen)}
+        >
           <Icon name="fas fa-filter" /> {t('board.filters')}
         </button>
         <input
@@ -279,12 +293,20 @@ export default class BoardPage extends Page {
           oninput={(e: Event) => this.setFilter('q', (e.target as HTMLInputElement).value)}
         />
         {app.session.user ? (
-          <button className={classList('CorkboardToggle', f.mine && 'is-on')} aria-pressed={f.mine ? 'true' : 'false'} onclick={() => this.setFilter('mine', !f.mine)}>
+          <button
+            className={classList('CorkboardToggle', f.mine && 'is-on')}
+            aria-pressed={f.mine ? 'true' : 'false'}
+            onclick={() => this.setFilter('mine', !f.mine)}
+          >
             {t('board.filter_mine')}
           </button>
         ) : null}
         {data.labels.length
-          ? select('label', [['', tx('board.filter_labels')], ...data.labels.map((l) => [String(l.id), l.name || tx('label.unnamed')] as [string, string])], tx('board.filter_labels'))
+          ? select(
+              'label',
+              [['', tx('board.filter_labels')], ...data.labels.map((l) => [String(l.id), l.name || tx('label.unnamed')] as [string, string])],
+              tx('board.filter_labels')
+            )
           : null}
         {select(
           'due',
@@ -301,7 +323,11 @@ export default class BoardPage extends Page {
           [['', tx('board.filter_priority')], ...['urgent', 'high', 'normal', 'low'].map((p) => [p, tx('priority.' + p)] as [string, string])],
           tx('board.filter_priority')
         )}
-        <button className={classList('CorkboardToggle', f.hideDone && 'is-on')} aria-pressed={f.hideDone ? 'true' : 'false'} onclick={() => this.setFilter('hideDone', !f.hideDone)}>
+        <button
+          className={classList('CorkboardToggle', f.hideDone && 'is-on')}
+          aria-pressed={f.hideDone ? 'true' : 'false'}
+          onclick={() => this.setFilter('hideDone', !f.hideDone)}
+        >
           {t('board.filter_hide_done')}
         </button>
         <span className="CorkboardFilters-summary">{t('board.summary', { done, total: data.board.cardCount, late })}</span>
@@ -404,20 +430,35 @@ export default class BoardPage extends Page {
     }
 
     return (
-      <section className={classList('CorkboardColumn', column.isDone && 'CorkboardColumn--done', target && 'is-target')} data-ck-column={column.id} key={column.id} aria-label={column.title}>
+      <section
+        className={classList('CorkboardColumn', column.isDone && 'CorkboardColumn--done', target && 'is-target')}
+        data-ck-column={column.id}
+        key={column.id}
+        aria-label={column.title}
+      >
         <header className="CorkboardColumn-head" style={column.color ? { borderTopColor: column.color } : {}}>
           {column.isDone ? <Icon name="fas fa-check" className="CorkboardColumn-doneIcon" /> : null}
           <h2 className="CorkboardColumn-title">{column.title}</h2>
-          <span className={classList('CorkboardColumn-count', over && 'is-over', full && 'is-full')} title={column.wipLimit ? tx('column.wip_help', { limit: column.wipLimit }) : undefined}>
+          <span
+            className={classList('CorkboardColumn-count', over && 'is-over', full && 'is-full')}
+            title={column.wipLimit ? tx('column.wip_help', { limit: column.wipLimit }) : undefined}
+          >
             {this.countLabel(column)}
           </span>
           {data.abilities.manage ? (
-            <Button className="Button Button--icon Button--link CorkboardColumn-menu" icon="fas fa-ellipsis" aria-label={tx('column.edit', { title: column.title })} onclick={() => app.modal.show(ColumnModal, { board: s, column })} />
+            <Button
+              className="Button Button--icon Button--link CorkboardColumn-menu"
+              icon="fas fa-ellipsis"
+              aria-label={tx('column.edit', { title: column.title })}
+              onclick={() => app.modal.show(ColumnModal, { board: s, column })}
+            />
           ) : null}
         </header>
         <div className="CorkboardColumn-list" data-ck-list>
           {list}
-          {cards.length === 0 && !target ? <p className="CorkboardColumn-empty">{t(this.filtering() ? 'column.empty_filtered' : 'column.empty')}</p> : null}
+          {cards.length === 0 && !target ? (
+            <p className="CorkboardColumn-empty">{t(this.filtering() ? 'column.empty_filtered' : 'column.empty')}</p>
+          ) : null}
           {column.more ? (
             <Button className="Button Button--link CorkboardColumn-more" onclick={() => this.more(column)}>
               {t('column.more', { count: column.more })}
@@ -436,7 +477,12 @@ export default class BoardPage extends Page {
     return (
       <div
         key={card.id}
-        className={classList('CorkboardCard', card.completedAt && 'is-done', picked && 'is-picked', this.liftedId === card.id && 'CorkboardCard--lifted')}
+        className={classList(
+          'CorkboardCard',
+          card.completedAt && 'is-done',
+          picked && 'is-picked',
+          this.liftedId === card.id && 'CorkboardCard--lifted'
+        )}
         data-ck-card={card.id}
         tabindex="0"
         role="button"
@@ -555,7 +601,14 @@ export default class BoardPage extends Page {
       e.preventDefault();
       this.picked = { id: card.id, columnId: card.columnId, position: card.position };
       s.dragging = true;
-      this.announce = tx('keys.picked', { title: card.title, column: column.title, col: ci + 1, cols: columns.length, position: i + 1, total: list.length });
+      this.announce = tx('keys.picked', {
+        title: card.title,
+        column: column.title,
+        col: ci + 1,
+        cols: columns.length,
+        position: i + 1,
+        total: list.length,
+      });
       this.focusId = card.id;
     } else if (e.key === 'Enter') {
       e.preventDefault();
@@ -584,7 +637,13 @@ export default class BoardPage extends Page {
     data.cards = sort(data.cards);
     const list = this.state.columnCards(to.id).filter((c) => c.id === card.id || this.matches(c));
     const ci = data.columns.findIndex((c) => c.id === to.id);
-    this.announce = tx('keys.moved', { column: to.title, col: ci + 1, cols: data.columns.length, position: list.findIndex((c) => c.id === card.id) + 1, total: list.length });
+    this.announce = tx('keys.moved', {
+      column: to.title,
+      col: ci + 1,
+      cols: data.columns.length,
+      position: list.findIndex((c) => c.id === card.id) + 1,
+      total: list.length,
+    });
     this.focusId = card.id;
   }
 

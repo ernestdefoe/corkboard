@@ -20,11 +20,26 @@ interface Detail extends SlimCard {
   descriptionHtml: string | null;
   description: string | null;
   checklist: Array<{ id: number; text: string; isDone: boolean; userId: number | null }>;
-  comments: Array<{ id: number; userId: number | null; html: string; source: string | null; createdAt: string; editedAt: string | null; canEdit: boolean; canDelete: boolean }>;
+  comments: Array<{
+    id: number;
+    userId: number | null;
+    html: string;
+    source: string | null;
+    createdAt: string;
+    editedAt: string | null;
+    canEdit: boolean;
+    canDelete: boolean;
+  }>;
   commentsMore: boolean;
   watching: boolean | null;
   watcherCount: number;
-  discussion: null | { id: number; title: string; slug: string; replyCount: number; lastReplies: Array<{ id: number; number: number; createdAt: string; user: Person | null; excerpt: string | null }> };
+  discussion: null | {
+    id: number;
+    title: string;
+    slug: string;
+    replyCount: number;
+    lastReplies: Array<{ id: number; number: number; createdAt: string; user: Person | null; excerpt: string | null }>;
+  };
   users: Record<string, Person>;
   abilities: { comment: boolean; edit: boolean; manage: boolean };
 }
@@ -110,7 +125,12 @@ export default class CardModal extends Modal<CardModalAttrs> {
   content() {
     if (this.failed) return <div className="Modal-body">{t('error.gone')}</div>;
     const card = this.card;
-    if (!card) return <div className="Modal-body"><LoadingIndicator /></div>;
+    if (!card)
+      return (
+        <div className="Modal-body">
+          <LoadingIndicator />
+        </div>
+      );
     const data = this.attrs.board.data!;
     const column = data.columns.find((c) => c.id === card.columnId);
     const edit = card.abilities.edit;
@@ -125,7 +145,12 @@ export default class CardModal extends Modal<CardModalAttrs> {
           </span>
           {card.archivedAt ? <span className="CorkboardChip">{t('card.archived')}</span> : null}
           {card.watching !== null ? (
-            <Button className={classList('Button', card.watching && 'Button--primary')} icon="far fa-eye" aria-pressed={card.watching ? 'true' : 'false'} onclick={() => this.save({ watching: !card.watching })}>
+            <Button
+              className={classList('Button', card.watching && 'Button--primary')}
+              icon="far fa-eye"
+              aria-pressed={card.watching ? 'true' : 'false'}
+              onclick={() => this.save({ watching: !card.watching })}
+            >
               {t(card.watching ? 'card.watching' : 'card.watch', { count: card.watcherCount })}
             </Button>
           ) : null}
@@ -178,7 +203,10 @@ export default class CardModal extends Modal<CardModalAttrs> {
         <div className="CorkboardCardModal-sectionHead">
           <h3>{t('card.description')}</h3>
           {edit && !this.editingDescription ? (
-            <Button className="Button Button--link" onclick={() => ((this.editingDescription = true), (this.descriptionDraft = card.description || ''))}>
+            <Button
+              className="Button Button--link"
+              onclick={() => ((this.editingDescription = true), (this.descriptionDraft = card.description || ''))}
+            >
               {t('card.edit')}
             </Button>
           ) : null}
@@ -195,7 +223,11 @@ export default class CardModal extends Modal<CardModalAttrs> {
             />
             <p className="helpText">{t('card.markdown_help')}</p>
             <div className="CorkboardCardModal-editorActions">
-              <Button className="Button Button--primary" loading={this.busy} onclick={() => this.save({ description: this.descriptionDraft }).then(() => (this.editingDescription = false))}>
+              <Button
+                className="Button Button--primary"
+                loading={this.busy}
+                onclick={() => this.save({ description: this.descriptionDraft }).then(() => (this.editingDescription = false))}
+              >
                 {t('save')}
               </Button>
               <Button className="Button Button--link" onclick={() => (this.editingDescription = false)}>
@@ -397,10 +429,20 @@ export default class CardModal extends Modal<CardModalAttrs> {
     return (
       <section className="CorkboardCardModal-section">
         <div className="CorkboardTabs" role="tablist">
-          <button role="tab" aria-selected={this.tab === 'comments' ? 'true' : 'false'} className={classList(this.tab === 'comments' && 'is-active')} onclick={() => (this.tab = 'comments')}>
+          <button
+            role="tab"
+            aria-selected={this.tab === 'comments' ? 'true' : 'false'}
+            className={classList(this.tab === 'comments' && 'is-active')}
+            onclick={() => (this.tab = 'comments')}
+          >
             {t('card.comments', { count: card.commentCount })}
           </button>
-          <button role="tab" aria-selected={this.tab === 'activity' ? 'true' : 'false'} className={classList(this.tab === 'activity' && 'is-active')} onclick={() => (this.tab = 'activity')}>
+          <button
+            role="tab"
+            aria-selected={this.tab === 'activity' ? 'true' : 'false'}
+            className={classList(this.tab === 'activity' && 'is-active')}
+            onclick={() => (this.tab = 'activity')}
+          >
             {t('card.activity')}
           </button>
         </div>
@@ -435,7 +477,10 @@ export default class CardModal extends Modal<CardModalAttrs> {
       <div className="CorkboardComments">
         {card.abilities.comment && me ? (
           <div className="CorkboardComments-composer">
-            <Avatar user={{ id: Number(me.id()), name: me.displayName(), username: me.username(), slug: me.slug(), avatarUrl: me.avatarUrl() || null }} size={30} />
+            <Avatar
+              user={{ id: Number(me.id()), name: me.displayName(), username: me.username(), slug: me.slug(), avatarUrl: me.avatarUrl() || null }}
+              size={30}
+            />
             <div className="CorkboardComments-field">
               <textarea
                 className="FormControl"
@@ -483,7 +528,13 @@ export default class CardModal extends Modal<CardModalAttrs> {
                 </div>
                 {this.editingComment === c.id ? (
                   <div className="CorkboardCardModal-editor">
-                    <textarea className="FormControl" rows={3} aria-label={tx('card.edit')} value={this.commentDraft} oninput={(e: Event) => (this.commentDraft = (e.target as HTMLTextAreaElement).value)} />
+                    <textarea
+                      className="FormControl"
+                      rows={3}
+                      aria-label={tx('card.edit')}
+                      value={this.commentDraft}
+                      oninput={(e: Event) => (this.commentDraft = (e.target as HTMLTextAreaElement).value)}
+                    />
                     <div className="CorkboardCardModal-editorActions">
                       <Button
                         className="Button Button--primary"
@@ -583,7 +634,13 @@ export default class CardModal extends Modal<CardModalAttrs> {
               onchange={(e: Event) => this.saveDue((e.target as HTMLInputElement).value, card.dueAllDay ? '' : dueValue.time || '17:00')}
             />
             {card.dueAt && !card.dueAllDay ? (
-              <input className="FormControl" type="time" aria-label={tx('card.due_time')} value={dueValue.time} onchange={(e: Event) => this.saveDue(dueValue.date, (e.target as HTMLInputElement).value)} />
+              <input
+                className="FormControl"
+                type="time"
+                aria-label={tx('card.due_time')}
+                value={dueValue.time}
+                onchange={(e: Event) => this.saveDue(dueValue.date, (e.target as HTMLInputElement).value)}
+              />
             ) : null}
             {card.dueAt ? (
               <label className="checkbox">
@@ -643,19 +700,34 @@ export default class CardModal extends Modal<CardModalAttrs> {
           <h4>{t('card.cover')}</h4>
           <div className="CorkboardSwatches">
             {COVERS.map((c) => (
-              <button className={classList('CorkboardSwatch', card.coverColor === c && 'is-on')} style={{ background: c }} aria-label={c} aria-pressed={card.coverColor === c ? 'true' : 'false'} onclick={() => this.save({ coverColor: card.coverColor === c ? null : c })} />
+              <button
+                className={classList('CorkboardSwatch', card.coverColor === c && 'is-on')}
+                style={{ background: c }}
+                aria-label={c}
+                aria-pressed={card.coverColor === c ? 'true' : 'false'}
+                onclick={() => this.save({ coverColor: card.coverColor === c ? null : c })}
+              />
             ))}
           </div>
         </div>
       ) : null,
       <div className="CorkboardCardModal-actions">
         {edit && data.board.status === 'active' ? (
-          <Button className="Button Button--primary" icon={card.completedAt ? 'fas fa-rotate-left' : 'fas fa-check'} loading={this.busy} onclick={() => this.save({ completed: !card.completedAt })}>
+          <Button
+            className="Button Button--primary"
+            icon={card.completedAt ? 'fas fa-rotate-left' : 'fas fa-check'}
+            loading={this.busy}
+            onclick={() => this.save({ completed: !card.completedAt })}
+          >
             {t(card.completedAt ? 'card.reopen' : 'card.complete')}
           </Button>
         ) : null}
         {edit ? (
-          <Button className="Button" icon="fas fa-arrows-up-down-left-right" onclick={() => app.modal.show(MoveCardModal, { board: this.attrs.board, cardId: card.id }, true)}>
+          <Button
+            className="Button"
+            icon="fas fa-arrows-up-down-left-right"
+            onclick={() => app.modal.show(MoveCardModal, { board: this.attrs.board, cardId: card.id }, true)}
+          >
             {t('card.move')}
           </Button>
         ) : null}

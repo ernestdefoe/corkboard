@@ -54,7 +54,12 @@ export default class MoveCardModal extends FormModal<MoveCardModalAttrs> {
           </fieldset>
           <div className="Form-group">
             <label for="ck-move-place">{t('move.place')}</label>
-            <Select id="ck-move-place" value={this.place} options={{ top: tx('move.top'), bottom: tx('move.bottom') }} onchange={(value: 'top' | 'bottom') => (this.place = value)} />
+            <Select
+              id="ck-move-place"
+              value={this.place}
+              options={{ top: tx('move.top'), bottom: tx('move.bottom') }}
+              onchange={(value: 'top' | 'bottom') => (this.place = value)}
+            />
           </div>
           <div className="Form-group">
             <Button className="Button Button--primary Button--block" type="submit" loading={this.loading}>
@@ -70,7 +75,10 @@ export default class MoveCardModal extends FormModal<MoveCardModalAttrs> {
     e.preventDefault();
     const s = this.attrs.board;
     const list = s.columnCards(this.columnId).filter((c) => c.id !== this.attrs.cardId);
-    const body: Record<string, any> = { columnId: this.columnId, afterId: this.place === 'top' ? null : list.length ? list[list.length - 1].id : null };
+    const body: Record<string, any> = {
+      columnId: this.columnId,
+      afterId: this.place === 'top' ? null : list.length ? list[list.length - 1].id : null,
+    };
     this.loading = true;
     call('PATCH', `/cards/${this.attrs.cardId}`, body)
       .then((answer) => {

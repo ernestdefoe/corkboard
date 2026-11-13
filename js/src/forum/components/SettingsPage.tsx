@@ -48,7 +48,13 @@ export default class SettingsPage extends Page {
 
   reset(): void {
     const b = this.state.data!.board;
-    this.draft = { title: b.title, description: b.description || '', color: b.color, tagId: b.tagId ? String(b.tagId) : '', projectId: b.projectId ? String(b.projectId) : '' };
+    this.draft = {
+      title: b.title,
+      description: b.description || '',
+      color: b.color,
+      tagId: b.tagId ? String(b.tagId) : '',
+      projectId: b.projectId ? String(b.projectId) : '',
+    };
   }
 
   save(body: Record<string, any>): Promise<void> {
@@ -84,7 +90,12 @@ export default class SettingsPage extends Page {
         <div className="CorkboardSettingsPage-layout">
           <nav className="CorkboardSettingsPage-tabs" role="tablist" aria-label={tx('settings.heading')}>
             {tabs.map((tab) => (
-              <button role="tab" aria-selected={this.tab === tab ? 'true' : 'false'} className={classList('CorkboardSettingsPage-tab', this.tab === tab && 'is-active')} onclick={() => (this.tab = tab)}>
+              <button
+                role="tab"
+                aria-selected={this.tab === tab ? 'true' : 'false'}
+                className={classList('CorkboardSettingsPage-tab', this.tab === tab && 'is-active')}
+                onclick={() => (this.tab = tab)}
+              >
                 {t('settings.tab_' + tab)}
               </button>
             ))}
@@ -150,7 +161,12 @@ export default class SettingsPage extends Page {
               value={this.query}
               oninput={(e: Event) => this.search((e.target as HTMLInputElement).value)}
             />
-            <Select aria-label={tx('settings.role')} value={this.addRole} options={roleOptions()} onchange={(value: string) => (this.addRole = value)} />
+            <Select
+              aria-label={tx('settings.role')}
+              value={this.addRole}
+              options={roleOptions()}
+              onchange={(value: string) => (this.addRole = value)}
+            />
           </div>
         ) : null}
         {this.query && (this.found.users.length || this.found.groups.length) ? (
@@ -193,13 +209,22 @@ export default class SettingsPage extends Page {
                 {user ? (
                   <Avatar user={user} size={32} />
                 ) : (
-                  <span className="CorkboardGroupIcon CorkboardGroupIcon--big" style={{ background: group?.color || '#5a6575', color: onColor(group?.color) }}>
+                  <span
+                    className="CorkboardGroupIcon CorkboardGroupIcon--big"
+                    style={{ background: group?.color || '#5a6575', color: onColor(group?.color) }}
+                  >
                     <Icon name={group?.icon || 'fas fa-users'} />
                   </span>
                 )}
                 <span className="CorkboardTeamList-name">
                   <strong>{user ? user.name : group?.name}</strong>
-                  <span className="CorkboardMuted">{group ? (group.count === null ? t('settings.everyone_signed_in') : t('settings.group_count', { count: group.count })) : '@' + user?.username}</span>
+                  <span className="CorkboardMuted">
+                    {group
+                      ? group.count === null
+                        ? t('settings.everyone_signed_in')
+                        : t('settings.group_count', { count: group.count })
+                      : '@' + user?.username}
+                  </span>
                 </span>
                 {manage ? (
                   <Select
@@ -237,10 +262,20 @@ export default class SettingsPage extends Page {
     if (b.visibility === 'members') return t('settings.reach_members');
     const people = new Set<number>([b.ownerId || 0, ...data.members.filter((m) => m.userId).map((m) => m.userId!)]);
     people.delete(0);
-    const groups = b.visibility === 'private' ? [] : data.members.filter((m) => m.groupId).map((m) => data.groups[m.groupId!]).filter(Boolean);
+    const groups =
+      b.visibility === 'private'
+        ? []
+        : data.members
+            .filter((m) => m.groupId)
+            .map((m) => data.groups[m.groupId!])
+            .filter(Boolean);
     if (groups.some((g) => g.count === null)) return t('settings.reach_members');
     const inGroups = groups.reduce((n, g) => n + (g.count || 0), 0);
-    return t(groups.length ? 'settings.reach_team_groups' : 'settings.reach_team', { people: people.size, groups: groups.map((g) => g.name).join(', '), count: inGroups });
+    return t(groups.length ? 'settings.reach_team_groups' : 'settings.reach_team', {
+      people: people.size,
+      groups: groups.map((g) => g.name).join(', '),
+      count: inGroups,
+    });
   }
 
   changeVisibility(v: Visibility): void {
@@ -291,17 +326,40 @@ export default class SettingsPage extends Page {
         <div className="Form">
           <div className="Form-group">
             <label for="ck-title">{t('settings.name')}</label>
-            <input id="ck-title" className="FormControl" maxlength={160} disabled={!manage} value={d.title} oninput={(e: Event) => (d.title = (e.target as HTMLInputElement).value)} />
+            <input
+              id="ck-title"
+              className="FormControl"
+              maxlength={160}
+              disabled={!manage}
+              value={d.title}
+              oninput={(e: Event) => (d.title = (e.target as HTMLInputElement).value)}
+            />
           </div>
           <div className="Form-group">
             <label for="ck-description">{t('settings.description')}</label>
-            <textarea id="ck-description" className="FormControl" rows={3} maxlength={1000} disabled={!manage} value={d.description} oninput={(e: Event) => (d.description = (e.target as HTMLTextAreaElement).value)} />
+            <textarea
+              id="ck-description"
+              className="FormControl"
+              rows={3}
+              maxlength={1000}
+              disabled={!manage}
+              value={d.description}
+              oninput={(e: Event) => (d.description = (e.target as HTMLTextAreaElement).value)}
+            />
           </div>
           <fieldset className="Form-group">
             <legend>{t('settings.color')}</legend>
             <div className="CorkboardSwatches">
               {COLORS.map((c) => (
-                <button type="button" className={classList('CorkboardSwatch', d.color === c && 'is-on')} style={{ background: c }} aria-label={c} aria-pressed={d.color === c ? 'true' : 'false'} disabled={!manage} onclick={() => (d.color = c)} />
+                <button
+                  type="button"
+                  className={classList('CorkboardSwatch', d.color === c && 'is-on')}
+                  style={{ background: c }}
+                  aria-label={c}
+                  aria-pressed={d.color === c ? 'true' : 'false'}
+                  disabled={!manage}
+                  onclick={() => (d.color = c)}
+                />
               ))}
             </div>
           </fieldset>
@@ -339,7 +397,15 @@ export default class SettingsPage extends Page {
               <Button
                 className="Button Button--primary"
                 loading={this.saving}
-                onclick={() => this.save({ title: d.title, description: d.description, color: d.color, ...(tags.length ? { tagId: d.tagId || null } : {}), ...(data.projects ? { projectId: d.projectId || null } : {}) })}
+                onclick={() =>
+                  this.save({
+                    title: d.title,
+                    description: d.description,
+                    color: d.color,
+                    ...(tags.length ? { tagId: d.tagId || null } : {}),
+                    ...(data.projects ? { projectId: d.projectId || null } : {}),
+                  })
+                }
               >
                 {t('save')}
               </Button>
@@ -360,7 +426,11 @@ export default class SettingsPage extends Page {
               <span className="CorkboardSettingsList-name">
                 {c.isDone ? <Icon name="fas fa-check" /> : null} {c.title}
               </span>
-              <span className="CorkboardMuted">{[c.isDone ? tx('column.done_badge') : '', c.wipLimit ? tx('column.limit_badge', { limit: c.wipLimit }) : ''].filter(Boolean).join(' · ')}</span>
+              <span className="CorkboardMuted">
+                {[c.isDone ? tx('column.done_badge') : '', c.wipLimit ? tx('column.limit_badge', { limit: c.wipLimit }) : '']
+                  .filter(Boolean)
+                  .join(' · ')}
+              </span>
               {data.abilities.manage ? (
                 <Button className="Button" onclick={() => app.modal.show(ColumnModal, { board: this.state, column: c })}>
                   {t('card.edit')}
@@ -397,7 +467,9 @@ export default class SettingsPage extends Page {
                   aria-label={tx('settings.label_name')}
                   placeholder={tx('settings.label_name')}
                   value={l.name}
-                  onchange={(e: Event) => call('PATCH', `/labels/${l.id}`, { name: (e.target as HTMLInputElement).value }).then((a) => this.state.replace(a))}
+                  onchange={(e: Event) =>
+                    call('PATCH', `/labels/${l.id}`, { name: (e.target as HTMLInputElement).value }).then((a) => this.state.replace(a))
+                  }
                 />
               ) : null}
               {manage ? (
@@ -410,13 +482,26 @@ export default class SettingsPage extends Page {
                 />
               ) : null}
               {manage ? (
-                <Button className="Button Button--icon Button--link" icon="far fa-trash-can" aria-label={tx('settings.label_delete')} onclick={() => call('DELETE', `/labels/${l.id}`).then((a) => this.state.replace(a))} />
+                <Button
+                  className="Button Button--icon Button--link"
+                  icon="far fa-trash-can"
+                  aria-label={tx('settings.label_delete')}
+                  onclick={() => call('DELETE', `/labels/${l.id}`).then((a) => this.state.replace(a))}
+                />
               ) : null}
             </li>
           ))}
         </ul>
         {manage ? (
-          <Button className="Button" icon="fas fa-plus" onclick={() => call('POST', `/boards/${this.state.id}/labels`, { name: '', color: LABEL_COLORS[data.labels.length % LABEL_COLORS.length] }).then((a) => this.state.replace(a))}>
+          <Button
+            className="Button"
+            icon="fas fa-plus"
+            onclick={() =>
+              call('POST', `/boards/${this.state.id}/labels`, { name: '', color: LABEL_COLORS[data.labels.length % LABEL_COLORS.length] }).then((a) =>
+                this.state.replace(a)
+              )
+            }
+          >
             {t('settings.add_label')}
           </Button>
         ) : null}

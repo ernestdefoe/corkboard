@@ -44,7 +44,13 @@ export default class ColumnModal extends FormModal<ColumnModalAttrs> {
         <div className="Form">
           <div className="Form-group">
             <label for="ck-column-title">{t('column.name')}</label>
-            <input id="ck-column-title" className="FormControl" maxlength={80} value={this.title_} oninput={(e: Event) => (this.title_ = (e.target as HTMLInputElement).value)} />
+            <input
+              id="ck-column-title"
+              className="FormControl"
+              maxlength={80}
+              value={this.title_}
+              oninput={(e: Event) => (this.title_ = (e.target as HTMLInputElement).value)}
+            />
           </div>
           <div className="Form-group">
             <label className="checkbox">
@@ -55,18 +61,39 @@ export default class ColumnModal extends FormModal<ColumnModalAttrs> {
           </div>
           <div className="Form-group">
             <label for="ck-column-wip">{t('column.wip')}</label>
-            <input id="ck-column-wip" className="FormControl" type="number" min="1" max="999" value={this.wipLimit} oninput={(e: Event) => (this.wipLimit = (e.target as HTMLInputElement).value)} />
+            <input
+              id="ck-column-wip"
+              className="FormControl"
+              type="number"
+              min="1"
+              max="999"
+              value={this.wipLimit}
+              oninput={(e: Event) => (this.wipLimit = (e.target as HTMLInputElement).value)}
+            />
             <p className="helpText">{t('column.wip_explain')}</p>
           </div>
           {this.isDone ? (
             <div className="Form-group">
               <label for="ck-column-archive">{t('column.auto_archive')}</label>
-              <input id="ck-column-archive" className="FormControl" type="number" min="1" max="365" value={this.archiveDays} oninput={(e: Event) => (this.archiveDays = (e.target as HTMLInputElement).value)} />
+              <input
+                id="ck-column-archive"
+                className="FormControl"
+                type="number"
+                min="1"
+                max="365"
+                value={this.archiveDays}
+                oninput={(e: Event) => (this.archiveDays = (e.target as HTMLInputElement).value)}
+              />
             </div>
           ) : null}
           {c ? (
             <div className="Form-group CorkboardColumnModal-order">
-              <Button className="Button" icon="fas fa-arrow-left" disabled={i <= 0} onclick={() => this.reorder(i - 2 >= 0 ? columns[i - 2].id : null)}>
+              <Button
+                className="Button"
+                icon="fas fa-arrow-left"
+                disabled={i <= 0}
+                onclick={() => this.reorder(i - 2 >= 0 ? columns[i - 2].id : null)}
+              >
                 {t('column.move_left')}
               </Button>
               <Button className="Button" icon="fas fa-arrow-right" disabled={i >= columns.length - 1} onclick={() => this.reorder(columns[i + 1].id)}>
@@ -107,7 +134,12 @@ export default class ColumnModal extends FormModal<ColumnModalAttrs> {
   onsubmit(e: SubmitEvent) {
     e.preventDefault();
     this.loading = true;
-    const body = { title: this.title_, isDone: this.isDone, wipLimit: this.wipLimit ? Number(this.wipLimit) : null, autoArchiveDays: this.isDone && this.archiveDays ? Number(this.archiveDays) : null };
+    const body = {
+      title: this.title_,
+      isDone: this.isDone,
+      wipLimit: this.wipLimit ? Number(this.wipLimit) : null,
+      autoArchiveDays: this.isDone && this.archiveDays ? Number(this.archiveDays) : null,
+    };
     const c = this.attrs.column;
     call(c ? 'PATCH' : 'POST', c ? `/columns/${c.id}` : `/boards/${this.attrs.board.id}/columns`, body)
       .then((answer) => {

@@ -1603,6 +1603,11 @@ html:not(#x-hi) .CorkboardDiscussionChip {
     scroll-padding: 0 12px;
     -webkit-overflow-scrolling: touch;
   }
+  // 🚨 Mandatory snapping pulls every small auto-scroll step back to a column's start, so the
+  // strip never moves on under a dragged card: no snapping while one is in the air.
+  .CorkboardDragging .CorkboardBoard-strip {
+    scroll-snap-type: none;
+  }
   .CorkboardColumn {
     flex-basis: 86vw;
     width: 86vw;
@@ -1636,4 +1641,46 @@ html:not(#x-hi) .CorkboardDiscussionChip {
   .CorkboardSettingsPage-tab {
     white-space: nowrap;
   }
+}
+
+// ------------------------------------------------------------------ on a project's page
+
+.CorkboardProjectBoards {
+  .CorkboardTokens();
+  margin: 24px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+.CorkboardProjectBoards-title {
+  margin: 0;
+  font-size: 16px;
+  color: var(--ck-text);
+}
+html:not(#x-hi) .CorkboardProjectBoards-board {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(80px, 200px);
+  gap: 4px 14px;
+  align-items: center;
+  align-self: stretch;
+  padding: 12px 14px;
+  border: 1px solid var(--ck-control);
+  border-left: 4px solid var(--board-color, var(--ck-primary));
+  border-radius: 8px;
+  color: var(--ck-text);
+  text-decoration: none;
+  &:hover,
+  &:focus-visible {
+    border-color: var(--board-color, var(--ck-primary));
+  }
+}
+.CorkboardProjectBoards-name {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.CorkboardProjectBoards-meta {
+  grid-column: ~'1 / -1';
+  font-size: 12px;
+  color: var(--ck-muted);
 }

@@ -15,6 +15,8 @@ export interface Template {
 
 export interface CreateBoardModalAttrs extends IFormModalAttrs {
   template?: string;
+  /** Started from a project's page: the board belongs to it. */
+  projectId?: number;
   templates?: { builtIn: Template[]; custom: Template[] };
 }
 
@@ -105,7 +107,7 @@ export default class CreateBoardModal extends FormModal<CreateBoardModalAttrs> {
   onsubmit(e: SubmitEvent) {
     e.preventDefault();
     this.loading = true;
-    call('POST', '/boards', { title: this.name, template: this.template, visibility: this.visibility })
+    call('POST', '/boards', { title: this.name, template: this.template, visibility: this.visibility, projectId: this.attrs.projectId })
       .then((answer) => {
         this.hide();
         m.route.set(boardUrl(answer.board));

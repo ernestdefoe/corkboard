@@ -406,6 +406,9 @@ ernestdefoe-corkboard:
       submit: Add the card
       done: "Added to {board}."
       no_boards: You're not an editor on any board yet.
+    project:
+      title: Boards
+      add: Add a board for this project
     discussion:
       add: Add to a board
       chip: "On {board} · {column}"

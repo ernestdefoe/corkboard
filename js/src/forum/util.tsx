@@ -108,13 +108,21 @@ export const Avatar = {
 const MONTH = { month: 'short', day: 'numeric' } as const;
 
 /** "Fri, Nov 14", "Dec 1", "Nov 14, 5:00 PM" and how urgent it is. */
-export function due(card: { dueAt: string | null; dueAllDay: boolean; completedAt?: string | null }): { text: string; state: 'done' | 'late' | 'soon' | 'later' } | null {
+export function due(card: {
+  dueAt: string | null;
+  dueAllDay: boolean;
+  completedAt?: string | null;
+}): { text: string; state: 'done' | 'late' | 'soon' | 'later' } | null {
   if (!card.dueAt) return null;
   const at = new Date(card.dueAt);
   const now = Date.now();
   const days = (at.getTime() - now) / 86400000;
   const sameYear = at.getFullYear() === new Date().getFullYear();
-  const opts: Intl.DateTimeFormatOptions = { ...MONTH, ...(sameYear ? {} : { year: 'numeric' }), ...(days >= 0 && days < 7 ? { weekday: 'short' } : {}) };
+  const opts: Intl.DateTimeFormatOptions = {
+    ...MONTH,
+    ...(sameYear ? {} : { year: 'numeric' }),
+    ...(days >= 0 && days < 7 ? { weekday: 'short' } : {}),
+  };
   if (!card.dueAllDay) Object.assign(opts, { hour: 'numeric', minute: '2-digit' });
   const text = at.toLocaleString(app.translator.getLocale() || undefined, card.dueAllDay ? { ...opts, timeZone: 'UTC' } : opts);
   const state = card.completedAt ? 'done' : at.getTime() < now ? 'late' : days <= 2 ? 'soon' : 'later';

@@ -8,3 +8,4 @@ export { default as BoardPage } from './BoardPage';
 export { default as SettingsPage } from './SettingsPage';
 export { default as MyCardsPage } from './MyCardsPage';
 export { default as AddToBoardModal } from './AddToBoardModal';
+export { default as CreateBoardModal } from './CreateBoardModal';

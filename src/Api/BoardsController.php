@@ -19,7 +19,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
- * GET    /corkboard/boards?tab=mine|all|completed|archived&q=&page=   the boards list
+ * GET    /corkboard/boards?tab=mine|all|completed|archived&q=&page=&project=   the boards list
  * POST   /corkboard/boards                                            start one (title, template, visibility…)
  * GET    /corkboard/boards/{id}                                       the whole board (Presenter::board)
  * PATCH  /corkboard/boards/{id}                                       settings, status, owner
@@ -61,6 +61,10 @@ class BoardsController extends Controller
         };
         if ($tab === 'mine') {
             $this->mine($query, $actor);
+        }
+        // A project's boards (the Projects page shows them).
+        if (! empty($q['project'])) {
+            $query->where('corkboard_boards.project_id', (int) $q['project']);
         }
         $text = trim((string) ($q['q'] ?? ''));
         if ($text !== '') {

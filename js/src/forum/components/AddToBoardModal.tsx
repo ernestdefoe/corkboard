@@ -47,25 +47,56 @@ export default class AddToBoardModal extends FormModal<AddToBoardModalAttrs> {
   }
 
   content() {
-    if (!this.boards) return <div className="Modal-body"><LoadingIndicator /></div>;
-    if (!this.boards.length) return <div className="Modal-body"><p>{t('add.no_boards')}</p></div>;
+    if (!this.boards)
+      return (
+        <div className="Modal-body">
+          <LoadingIndicator />
+        </div>
+      );
+    if (!this.boards.length)
+      return (
+        <div className="Modal-body">
+          <p>{t('add.no_boards')}</p>
+        </div>
+      );
     return (
       <div className="Modal-body">
         <div className="Form">
           <div className="Form-group">
             <label for="ck-add-board">{t('add.board')}</label>
-            <Select id="ck-add-board" value={String(this.boardId)} options={Object.fromEntries(this.boards.map((b) => [String(b.id), b.title]))} onchange={(value: string) => this.pick(Number(value))} />
+            <Select
+              id="ck-add-board"
+              value={String(this.boardId)}
+              options={Object.fromEntries(this.boards.map((b) => [String(b.id), b.title]))}
+              onchange={(value: string) => this.pick(Number(value))}
+            />
           </div>
           <div className="Form-group">
             <label for="ck-add-column">{t('add.column')}</label>
-            <Select id="ck-add-column" value={String(this.columnId)} options={Object.fromEntries(this.columns.map((c) => [String(c.id), c.title]))} onchange={(value: string) => (this.columnId = Number(value))} />
+            <Select
+              id="ck-add-column"
+              value={String(this.columnId)}
+              options={Object.fromEntries(this.columns.map((c) => [String(c.id), c.title]))}
+              onchange={(value: string) => (this.columnId = Number(value))}
+            />
           </div>
           <div className="Form-group">
             <label for="ck-add-title">{t('add.card_title')}</label>
-            <input id="ck-add-title" className="FormControl" maxlength={160} value={this.name} oninput={(e: Event) => (this.name = (e.target as HTMLInputElement).value)} />
+            <input
+              id="ck-add-title"
+              className="FormControl"
+              maxlength={160}
+              value={this.name}
+              oninput={(e: Event) => (this.name = (e.target as HTMLInputElement).value)}
+            />
           </div>
           <div className="Form-group">
-            <Button className="Button Button--primary Button--block" type="submit" loading={this.loading} disabled={!this.columnId || !this.name.trim()}>
+            <Button
+              className="Button Button--primary Button--block"
+              type="submit"
+              loading={this.loading}
+              disabled={!this.columnId || !this.name.trim()}
+            >
               {t('add.submit')}
             </Button>
           </div>
@@ -83,7 +114,18 @@ export default class AddToBoardModal extends FormModal<AddToBoardModalAttrs> {
         this.hide();
         app.alerts.show({ type: 'success' }, tx('add.done', { board: board.title }));
         const chips = this.attrs.discussion.attribute('corkboardCards') || [];
-        this.attrs.discussion.pushAttributes({ corkboardCards: [...chips, { cardId: answer.card.id, boardId: board.id, board: board.title, slug: board.slug, column: this.columns.find((c) => c.id === this.columnId)?.title }] });
+        this.attrs.discussion.pushAttributes({
+          corkboardCards: [
+            ...chips,
+            {
+              cardId: answer.card.id,
+              boardId: board.id,
+              board: board.title,
+              slug: board.slug,
+              column: this.columns.find((c) => c.id === this.columnId)?.title,
+            },
+          ],
+        });
         m.route.set(boardUrl(board, answer.card.id));
       })
       .catch(() => {})
