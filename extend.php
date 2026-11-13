@@ -105,17 +105,30 @@ $extenders = [
     new Extend\ApiResource(Api\CardResource::class),
     new Extend\ApiResource(Api\BoardResource::class),
 
+    // Alerts are core's; their email goes through Corkboard's outbox (Mail\Outbox), one email per
+    // person every few minutes. The digest's own switch (its unsubscribe link) stops all of it.
     (new Extend\Notification())
-        ->type(Notification\AssignedBlueprint::class, ['alert', 'email'])
-        ->type(Notification\DueSoonBlueprint::class, ['alert', 'email'])
+        ->type(Notification\AssignedBlueprint::class, ['alert'])
+        ->type(Notification\DueSoonBlueprint::class, ['alert'])
         ->type(Notification\OverdueBlueprint::class, ['alert'])
-        ->type(Notification\MentionedBlueprint::class, ['alert', 'email'])
+        ->type(Notification\MentionedBlueprint::class, ['alert'])
         ->type(Notification\CommentedBlueprint::class, ['alert'])
         ->type(Notification\DoneBlueprint::class, ['alert'])
-        ->type(Notification\TeamAddedBlueprint::class, ['alert', 'email'])
+        ->type(Notification\TeamAddedBlueprint::class, ['alert'])
         ->type(Notification\CompletedBlueprint::class, ['alert'])
-        // The batched email (Mail\Outbox); its unsubscribe link stops all Corkboard email.
         ->type(Notification\DigestBlueprint::class, ['email']),
+
+    // 🚨 Core registers a type's email switch only for a mailable blueprint, and these aren't (the
+    // outbox sends their email): without these the switches don't exist and nothing is ever emailed.
+    (new Extend\User())
+        ->registerPreference('notify_corkboardAssigned_email', 'boolval', true)
+        ->registerPreference('notify_corkboardDueSoon_email', 'boolval', true)
+        ->registerPreference('notify_corkboardOverdue_email', 'boolval', false)
+        ->registerPreference('notify_corkboardMentioned_email', 'boolval', true)
+        ->registerPreference('notify_corkboardCommented_email', 'boolval', false)
+        ->registerPreference('notify_corkboardDone_email', 'boolval', false)
+        ->registerPreference('notify_corkboardTeamAdded_email', 'boolval', true)
+        ->registerPreference('notify_corkboardCompleted_email', 'boolval', false),
 
     // The "On <board> · <column>" chip, only once some card links a discussion (no query before).
     (new Extend\ApiResource(DiscussionResource::class))

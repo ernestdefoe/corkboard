@@ -301,4 +301,74 @@ class CorkboardTest extends TestCase
         $this->assertSame(200, $status);
         $this->assertSame(['To do', 'Waiting', 'Done'], array_column($json['columns'], 'title'));
     }
+
+    #[Test]
+    public function the_discussion_chip_shows_only_cards_the_viewer_may_see(): void
+    {
+        $this->database()->table('discussions')->insert(['id' => 7, 'title' => 'Venue ideas', 'slug' => 'venue-ideas', 'comment_count' => 1, 'participant_count' => 1, 'created_at' => Carbon::now(), 'user_id' => 3, 'is_private' => false]);
+        // Before any card links a discussion, the field isn't there at all (no query).
+        $response = $this->send($this->request('GET', '/api/discussions/7', ['authenticatedAs' => 2]));
+        $this->assertArrayNotHasKey('corkboardCards', json_decode((string) $response->getBody(), true)['data']['attributes']);
+
+        $this->call('PATCH', '/cards/100', 3, ['discussionId' => 7]);
+        $this->call('PATCH', '/cards/200', 3, ['discussionId' => 7]);
+
+        $chips = fn (?int $as) => array_column(json_decode((string) $this->send($this->request('GET', '/api/discussions', $as ? ['authenticatedAs' => $as] : []))->getBody(), true)['data'][0]['attributes']['corkboardCards'] ?? [], 'board');
+        // Board 1 is public; board 2 is a team board the normal user isn't on.
+        $this->assertSame(['Board 1'], $chips(null));
+        $this->assertSame(['Board 1'], $chips(2));
+        $this->assertSame(['Board 1', 'Board 2'], $chips(4));
+    }
+
+    #[Test]
+    public function due_soon_and_overdue_are_sent_once_to_the_assignees(): void
+    {
+        $this->call('PATCH', '/cards/200', 3, ['assigneeIds' => [4], 'dueAt' => Carbon::now()->addHours(5)->toIso8601String()]);
+        $this->call('PATCH', '/cards/100', 3, ['dueAt' => Carbon::now()->subHours(5)->toIso8601String()]);
+        $this->database()->table('notifications')->delete();
+
+        $run = function () {
+            $command = $this->app()->getContainer()->make(\ErnestDefoe\Corkboard\Console\DueCommand::class);
+            $command->setLaravel($this->app()->getContainer());
+            $command->run(new \Symfony\Component\Console\Input\ArrayInput([]), new \Symfony\Component\Console\Output\NullOutput());
+        };
+        $run();
+        $run();
+        $rows = $this->database()->table('notifications')->orderBy('type')->get(['type', 'user_id'])->map(fn ($r) => $r->type.':'.$r->user_id)->all();
+        // Card 200 is Marc's (assigned), due in 5 hours; card 100 has nobody on it, so its owner Ana hears it's overdue.
+        $this->assertSame(['corkboardDueSoon:4', 'corkboardOverdue:3'], $rows);
+    }
+
+    #[Test]
+    public function updates_wait_in_the_outbox_and_go_as_one_email(): void
+    {
+        // Assigned is emailed by default; Overdue isn't (the defaults the scope gives).
+        $this->database()->table('users')->where('id', 5)->update(['preferences' => json_encode(['notify_corkboardAssigned_email' => false])]);
+        foreach ([200, 100 + 100] as $card) {
+            $this->call('PATCH', "/cards/$card", 3, ['assigneeIds' => []]);
+            $this->call('PATCH', "/cards/$card", 3, ['assigneeIds' => [4]]);
+        }
+        [, $json] = $this->call('POST', '/boards/2/cards', 3, ['columnId' => 21, 'title' => 'Order the banners']);
+        $this->call('PATCH', '/cards/'.$json['card']['id'], 3, ['assigneeIds' => [4]]);
+        $this->assertSame(3, $this->database()->table('corkboard_outbox')->where('user_id', 4)->count());
+        // Someone who switched the email off gets the alert and no email.
+        $this->call('PATCH', '/cards/200', 3, ['assigneeIds' => [4, 5]]);
+        $this->assertSame(1, $this->database()->table('notifications')->where('user_id', 5)->count());
+        $this->assertSame(0, $this->database()->table('corkboard_outbox')->where('user_id', 5)->count());
+
+        $outbox = $this->app()->getContainer()->make(\ErnestDefoe\Corkboard\Mail\Outbox::class);
+        // Still arriving (the newest is seconds old): it waits.
+        $this->assertSame(0, $outbox->flush());
+        $this->assertSame(1, $outbox->flush(true));
+        $this->assertSame(0, $this->database()->table('corkboard_outbox')->count());
+    }
+
+    #[Test]
+    public function a_projects_boards_are_listed_by_project(): void
+    {
+        $this->database()->table('corkboard_boards')->whereIn('id', [1, 2])->update(['project_id' => 9]);
+        $ids = fn (?int $as) => array_column($this->call('GET', '/boards?tab=all&project=9', $as)[1]['boards'], 'id');
+        $this->assertSame([1], $ids(2));
+        $this->assertEqualsCanonicalizing([1, 2], $ids(4));
+    }
 }
