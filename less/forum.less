@@ -807,6 +807,13 @@ html:not(#x-hi) .CorkboardBoardPage-crumbs {
   color: var(--ck-muted);
   min-width: 0;
 }
+.CorkboardCardModal-phoneTitle {
+  display: none;
+  margin: 0 0 6px;
+  font-size: 19px;
+  color: var(--ck-text);
+  overflow-wrap: anywhere;
+}
 .CorkboardCardModal-titleInput {
   font-size: 18px;
   font-weight: 700;
@@ -914,6 +921,7 @@ html:not(#x-hi) .CorkboardBoardPage-crumbs {
   }
 }
 .CorkboardThread {
+  background: var(--ck-bg);
   border: 1px solid var(--ck-control);
   border-radius: 10px;
   padding: 12px 14px;
@@ -1632,6 +1640,9 @@ html:not(#x-hi) .CorkboardDiscussionChip {
   }
   .CorkboardCardModal-columns {
     flex-direction: column;
+  }
+  .CorkboardCardModal-phoneTitle {
+    display: block;
   }
   .CorkboardSettingsPage-tabs {
     flex-direction: row;

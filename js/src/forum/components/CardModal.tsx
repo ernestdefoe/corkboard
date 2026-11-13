@@ -108,6 +108,9 @@ export default class CardModal extends Modal<CardModalAttrs> {
     return this.card ? this.card.title : tx('card.loading');
   }
 
+  /** Core focuses the first field, which on a card is far down ("Add an item"): the dialog opened scrolled. */
+  onready() {}
+
   /** PATCH, then show the change on the board and in here. */
   save(changes: Record<string, any>): Promise<void> {
     this.busy = true;
@@ -155,6 +158,8 @@ export default class CardModal extends Modal<CardModalAttrs> {
             </Button>
           ) : null}
         </div>
+        {/* Phones: core puts the dialog's title in the header bar, which a coloured header can hide. */}
+        <h2 className="CorkboardCardModal-phoneTitle">{card.title}</h2>
         {edit && this.editingTitle ? (
           <input
             className="FormControl CorkboardCardModal-titleInput"
