@@ -1,0 +1,100 @@
+{
+    "name": "ernestdefoe/corkboard",
+    "description": "Corkboard: project boards inside your Flarum forum. Columns and cards with checklists, due dates, labels, assignees and comments; drag and drop by mouse, touch or keyboard; public, members, team or private boards with per-person roles; My cards and Due soon widgets.",
+    "keywords": [
+        "flarum",
+        "flarum-extension",
+        "kanban",
+        "boards",
+        "project management",
+        "tasks",
+        "widget"
+    ],
+    "type": "flarum-extension",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Ernest Defoe",
+            "email": "ernestdefoe@gmail.com"
+        }
+    ],
+    "homepage": "https://github.com/ernestdefoe/corkboard",
+    "support": {
+        "issues": "https://github.com/ernestdefoe/corkboard/issues",
+        "source": "https://github.com/ernestdefoe/corkboard"
+    },
+    "funding": [
+        {
+            "type": "other",
+            "url": "https://buymeacoffee.com/ernestdefoe"
+        }
+    ],
+    "require": {
+        "php": "^8.3",
+        "flarum/core": "^2.0"
+    },
+    "suggest": {
+        "flarum/tags": "Start a discussion from a card in the board's tag",
+        "flarum/mentions": "@mention people in card descriptions and comments",
+        "flarum/realtime": "Boards update the moment someone moves a card",
+        "ernestdefoe/projects": "A board for a project, with its progress on the project page",
+        "ernestdefoe/renown": "XP for the people who finish a card",
+        "ernestdefoe/page-builder": "My cards, Due soon and Board progress as Page Builder blocks",
+        "fof/forum-widgets-core": "My cards and Due soon in FoF's widget sections",
+        "flarum/gdpr": "Cards and comments in a member's data export and erasure"
+    },
+    "autoload": {
+        "psr-4": {
+            "ErnestDefoe\\Corkboard\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "ErnestDefoe\\Corkboard\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "flarum-extension": {
+            "title": "Corkboard",
+            "category": "feature",
+            "icon": {
+                "name": "fas fa-table-columns",
+                "backgroundColor": "#4d698e",
+                "color": "#fff"
+            },
+            "optional-dependencies": [
+                "flarum/tags",
+                "flarum/gdpr",
+                "flarum/mentions",
+                "flarum/realtime",
+                "ernestdefoe/projects"
+            ]
+        }
+    },
+    "require-dev": {
+        "flarum/gdpr": "^2.0",
+        "flarum/phpstan": "^2.0",
+        "flarum/tags": "^2.0",
+        "flarum/testing": "^2.0",
+        "pusher/pusher-php-server": "^7.2"
+    },
+    "scripts": {
+        "test": [
+            "@test:integration"
+        ],
+        "test:integration": "phpunit -c tests/phpunit.integration.xml",
+        "test:setup": "@php tests/integration/setup.php",
+        "analyse:phpstan": "phpstan analyse"
+    },
+    "scripts-descriptions": {
+        "test": "Runs all tests.",
+        "test:integration": "Runs all integration tests.",
+        "test:setup": "Sets up a database for use with integration tests. Execute this only once.",
+        "analyse:phpstan": "Run static analysis"
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "beta",
+    "prefer-stable": true
+}
