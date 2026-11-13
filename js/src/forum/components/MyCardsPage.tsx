@@ -127,7 +127,12 @@ export default class MyCardsPage extends Page {
             </Button>
           </div>
         ) : (
-          <Button className="Button" onclick={() => call('GET', '/feed-token').then((a) => (a.url ? (this.feed = a.url) : call('POST', '/feed-token').then((b) => (this.feed = b.url))))}>
+          <Button
+            className="Button"
+            onclick={() =>
+              call('GET', '/feed-token').then((a) => (a.url ? (this.feed = a.url) : call('POST', '/feed-token').then((b) => (this.feed = b.url))))
+            }
+          >
             {t('mine.calendar_show')}
           </Button>
         )}
