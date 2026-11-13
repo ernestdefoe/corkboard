@@ -81,6 +81,13 @@ export default class BoardPage extends Page {
 
   onupdate(vnode: Mithril.VnodeDOM) {
     this.attachDrag(vnode.dom as HTMLElement);
+    // Phones: keep the chip of the column in view as the columns swipe (without scrolling the page).
+    const tabs = (vnode.dom as HTMLElement).querySelector('.CorkboardColumnTabs') as HTMLElement | null;
+    const tab = tabs?.querySelector('.is-active') as HTMLElement | null;
+    if (tabs && tab && tabs.scrollWidth > tabs.clientWidth) {
+      if (tab.offsetLeft < tabs.scrollLeft) tabs.scrollLeft = tab.offsetLeft - 12;
+      else if (tab.offsetLeft + tab.offsetWidth > tabs.scrollLeft + tabs.clientWidth) tabs.scrollLeft = tab.offsetLeft + tab.offsetWidth - tabs.clientWidth + 12;
+    }
     if (this.focusId) {
       const el = (vnode.dom as HTMLElement).querySelector(`[data-ck-card="${this.focusId}"]`) as HTMLElement | null;
       if (el && document.activeElement !== el) {

@@ -691,8 +691,11 @@ html:not(#x-hi) .CorkboardBoardPage-crumbs {
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
-  &:hover {
-    box-shadow: 0 0 0 1px var(--ck-primary), var(--ck-shadow);
+  // Only for real pointers: iOS keeps :hover on the last card tapped.
+  @media (hover: hover) {
+    &:hover {
+      box-shadow: 0 0 0 1px var(--ck-primary), var(--ck-shadow);
+    }
   }
   &:focus-visible {
     outline: 3px solid var(--ck-primary);
@@ -1583,6 +1586,7 @@ html:not(#x-hi) .CorkboardDiscussionChip {
   }
   .CorkboardColumnTabs {
     display: flex;
+    position: relative;
     gap: 6px;
     overflow-x: auto;
     padding: 4px 12px 10px;
