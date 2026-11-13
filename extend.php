@@ -131,6 +131,8 @@ $extenders = [
                 ->get(fn ($forum, Context $context) => resolve(\ErnestDefoe\Corkboard\Access::class)->createRefusal($context->getActor(), resolve(\ErnestDefoe\Corkboard\Settings::class)) === null),
             Schema\Boolean::make('corkboardCanPublic')
                 ->get(fn ($forum, Context $context) => $context->getActor()->hasPermission('corkboard.createPublic')),
+            Schema\Boolean::make('corkboardCanModerate')
+                ->get(fn ($forum, Context $context) => $context->getActor()->hasPermission('corkboard.moderate')),
             Schema\Boolean::make('corkboardCanView')
                 ->get(fn ($forum, Context $context) => $context->getActor()->hasPermission('corkboard.view') || ! $context->getActor()->isGuest()),
             Schema\Arr::make('corkboardVisibilities')

@@ -1,0 +1,1639 @@
+// Corkboard. Every colour comes from Flarum 2's custom properties, so the default theme, its
+// dark mode, a coloured header and other themes all carry over. Link rules start with
+// html:not(#x-hi) so a theme's own link colour (Bespoke colours `a:not(.Button)` at 0,3,1)
+// doesn't beat ours.
+
+@ck-gap: 10px;
+@ck-col: 226px;
+
+.CorkboardTokens() {
+  --ck-text: var(--text-color);
+  --ck-muted: var(--muted-color);
+  --ck-bg: var(--body-bg);
+  --ck-control: var(--control-bg);
+  --ck-control-text: var(--control-color);
+  --ck-primary: var(--primary-color);
+  --ck-card: var(--body-bg);
+  --ck-column: var(--control-bg);
+  --ck-border: var(--control-bg);
+  --ck-shadow: 0 1px 2px rgba(16, 24, 40, 0.14);
+  --ck-warn: #8a5a00;
+  --ck-warn-bg: #fff3d6;
+  --ck-bad: #b42318;
+  --ck-bad-bg: #fde7e5;
+  --ck-ok: #1f7a3a;
+  --ck-ok-bg: #e3f4e8;
+}
+
+.App--corkboard,
+.CorkboardWidget,
+.CorkboardDiscussionChips,
+.Modal.CorkboardCardModal,
+.Modal.CorkboardColumnModal,
+.Modal.CorkboardMoveModal,
+.Modal.CorkboardCreateModal,
+.Modal.CorkboardAddModal,
+.Modal.CorkboardActivityModal,
+.CorkboardCard--ghost {
+  .CorkboardTokens();
+}
+
+[data-theme^='dark'] {
+  .App--corkboard,
+  .CorkboardWidget,
+  .CorkboardDiscussionChips,
+  .Modal.CorkboardCardModal,
+  .Modal.CorkboardColumnModal,
+  .Modal.CorkboardMoveModal,
+  .Modal.CorkboardCreateModal,
+  .Modal.CorkboardAddModal,
+  .Modal.CorkboardActivityModal,
+  .CorkboardCard--ghost {
+    --ck-card: var(--control-bg);
+    --ck-column: color-mix(in srgb, var(--body-bg) 70%, var(--control-bg));
+    --ck-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+    --ck-warn: #f5c451;
+    --ck-warn-bg: #3a2f12;
+    --ck-bad: #ff8a80;
+    --ck-bad-bg: #3d1d1b;
+    --ck-ok: #7bd88f;
+    --ck-ok-bg: #183022;
+  }
+}
+
+.CorkboardMuted {
+  color: var(--ck-muted);
+}
+
+// ------------------------------------------------------------------ shared bits
+
+.CorkboardAvatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 700;
+  line-height: 1;
+  object-fit: cover;
+  background: var(--ck-control);
+  vertical-align: middle;
+}
+.CorkboardAvatar--ring {
+  box-shadow: 0 0 0 2px var(--ck-card);
+}
+.CorkboardAvatar--gone {
+  background: var(--ck-control);
+}
+
+.CorkboardChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--ck-control);
+  color: var(--ck-control-text);
+}
+
+.CorkboardLabel {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.4;
+  min-width: 28px;
+}
+.CorkboardLabel--wide {
+  min-width: 90px;
+}
+.CorkboardLabel--pick {
+  border: 0;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 5px 9px;
+  opacity: 0.55;
+  &.is-on {
+    opacity: 1;
+  }
+  &:focus-visible {
+    outline: 2px solid var(--ck-primary);
+    outline-offset: 2px;
+  }
+}
+
+.CorkboardDue {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--ck-control);
+  color: var(--ck-control-text);
+  &.is-soon {
+    background: var(--ck-warn-bg);
+    color: var(--ck-warn);
+  }
+  &.is-late {
+    background: var(--ck-bad-bg);
+    color: var(--ck-bad);
+  }
+  &.is-done {
+    background: var(--ck-ok-bg);
+    color: var(--ck-ok);
+  }
+}
+
+.CorkboardPriority {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 700;
+}
+.CorkboardPriority-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.is-urgent {
+  color: var(--ck-bad);
+}
+.is-high {
+  color: var(--ck-warn);
+}
+.is-normal {
+  color: var(--ck-primary);
+}
+.is-low {
+  color: var(--ck-muted);
+}
+.CorkboardPriority-dot.is-urgent,
+.CorkboardPriority-dot.is-high,
+.CorkboardPriority-dot.is-normal,
+.CorkboardPriority-dot.is-low {
+  margin-right: 6px;
+}
+
+.CorkboardProgress {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--ck-control);
+  overflow: hidden;
+  flex: 1;
+  min-width: 40px;
+}
+.CorkboardProgress-bar {
+  display: block;
+  height: 100%;
+  background: var(--ck-ok);
+}
+
+.CorkboardToggle {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 16px;
+  border: 1px solid var(--ck-control);
+  background: var(--ck-bg);
+  color: var(--ck-text);
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  &.is-on {
+    background: var(--ck-primary);
+    border-color: var(--ck-primary);
+    color: var(--body-bg);
+  }
+}
+
+.CorkboardSwatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.CorkboardSwatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  &.is-on {
+    border-color: var(--ck-text);
+    box-shadow: inset 0 0 0 2px var(--ck-bg);
+  }
+}
+
+.CorkboardEmpty {
+  padding: 30px 0;
+  color: var(--ck-muted);
+  text-align: center;
+}
+
+.CorkboardSegments {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--ck-control);
+  max-width: 100%;
+  overflow-x: auto;
+}
+.CorkboardSegments-tab {
+  border: 0;
+  background: transparent;
+  color: var(--ck-control-text);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  &.is-active {
+    background: var(--ck-bg);
+    color: var(--ck-text);
+    box-shadow: var(--ck-shadow);
+  }
+}
+
+// ------------------------------------------------------------------ boards list
+
+.CorkboardBoardsPage-head,
+.CorkboardMyCardsPage .CorkboardBoardsPage-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.CorkboardBoardsPage-title {
+  margin: 0;
+  font-size: 22px;
+  color: var(--ck-text);
+  flex: 1;
+}
+.CorkboardBoardsPage-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 18px;
+}
+.CorkboardBoardsPage-search {
+  flex: 1 1 200px;
+  max-width: 280px;
+}
+.CorkboardBoardsPage-section {
+  margin-bottom: 22px;
+}
+.CorkboardBoardsPage-label {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ck-muted);
+}
+.CorkboardTiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(~'min(250px, 100%)', 1fr));
+  gap: 14px;
+}
+html:not(#x-hi) .CorkboardTile {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--ck-control);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--ck-bg);
+  color: var(--ck-text);
+  text-decoration: none;
+  &:hover,
+  &:focus-visible {
+    border-color: var(--board-color, var(--ck-primary));
+    text-decoration: none;
+  }
+}
+.CorkboardTile-stripe {
+  height: 6px;
+  background: var(--board-color, var(--ck-primary));
+}
+.CorkboardTile-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  min-width: 0;
+}
+.CorkboardTile-titleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.CorkboardTile-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.CorkboardTile-pin {
+  color: var(--ck-muted);
+}
+.CorkboardTile .CorkboardProgress {
+  flex: none;
+}
+.CorkboardTile-description {
+  font-size: 12px;
+  color: var(--ck-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.CorkboardTile-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--ck-muted);
+}
+.CorkboardTile-people {
+  display: inline-flex;
+  padding-left: 5px;
+  .CorkboardAvatar {
+    margin-left: -5px;
+  }
+}
+.CorkboardTile-spacer {
+  flex: 1;
+}
+.CorkboardTemplates {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(~'min(200px, 100%)', 1fr));
+  gap: 12px;
+}
+.CorkboardTemplate {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+  padding: 12px 14px;
+  border: 1px dashed var(--ck-muted);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ck-text);
+  cursor: pointer;
+  &:hover,
+  &:focus-visible {
+    border-style: solid;
+    border-color: var(--ck-primary);
+  }
+}
+.CorkboardTemplate-name {
+  font-weight: 700;
+}
+.CorkboardTemplate-columns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  span {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--ck-control);
+    color: var(--ck-control-text);
+  }
+}
+
+// ------------------------------------------------------------------ a board
+
+.CorkboardBoardPage .Page-container,
+.CorkboardSettingsPage .Page-container {
+  // The board needs the width: no sidebar here.
+  display: block;
+}
+.CorkboardBoardPage .sideNavContainer,
+.CorkboardBoardPage .Page-content {
+  min-width: 0;
+}
+.CorkboardBoardPage-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+html:not(#x-hi) .CorkboardBoardPage-crumbs {
+  font-size: 12px;
+  color: var(--ck-muted);
+  a {
+    color: var(--ck-muted);
+  }
+}
+.CorkboardBoardPage-titleRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.CorkboardBoardPage-title {
+  margin: 0;
+  font-size: 22px;
+  color: var(--ck-text);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.CorkboardBoardPage-spacer {
+  flex: 1;
+}
+.CorkboardBoardPage-description {
+  margin: 0;
+  color: var(--ck-muted);
+}
+.CorkboardLive {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ck-ok);
+}
+.CorkboardLive-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.CorkboardTeam {
+  display: inline-flex;
+  align-items: center;
+  padding-left: 6px;
+  .CorkboardAvatar {
+    margin-left: -6px;
+  }
+}
+.CorkboardTeam-more,
+.CorkboardTeam-groups {
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--ck-muted);
+}
+.CorkboardClosed {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--ck-ok-bg);
+  color: var(--ck-ok);
+  font-weight: 600;
+}
+.CorkboardClosed--archived {
+  background: var(--ck-control);
+  color: var(--ck-control-text);
+}
+.CorkboardFilters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.CorkboardFilters-search {
+  flex: 1 1 160px;
+  max-width: 240px;
+}
+.CorkboardFilters-toggle {
+  display: none;
+}
+.CorkboardFilters-select {
+  width: auto;
+  max-width: 170px;
+  .Select-input {
+    padding-right: 30px;
+  }
+  &.is-on .Select-input {
+    box-shadow: inset 0 0 0 2px var(--ck-primary);
+    font-weight: 600;
+  }
+}
+.CorkboardFilters-summary {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--ck-muted);
+}
+.CorkboardStale {
+  display: block;
+  margin: 0 auto 10px;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--ck-primary);
+  color: var(--body-bg);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+// The column tabs are for phones (see below).
+.CorkboardColumnTabs {
+  display: none;
+}
+
+.CorkboardBoard {
+  position: relative;
+}
+.CorkboardBoard-strip {
+  display: flex;
+  align-items: flex-start;
+  gap: @ck-gap;
+  overflow-x: auto;
+  padding-bottom: 16px;
+  min-height: 300px;
+}
+.CorkboardColumn {
+  flex: 0 0 @ck-col;
+  width: @ck-col;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 220px);
+  background: var(--ck-column);
+  border-radius: 10px;
+  &.is-target {
+    box-shadow: inset 0 0 0 2px var(--ck-primary);
+  }
+}
+.CorkboardColumn-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 10px 6px 14px;
+  border-top: 3px solid transparent;
+  border-radius: 10px 10px 0 0;
+}
+.CorkboardColumn-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ck-text);
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.CorkboardColumn-doneIcon {
+  color: var(--ck-ok);
+}
+.CorkboardColumn-count {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 9px;
+  background: var(--ck-bg);
+  color: var(--ck-muted);
+  &.is-full {
+    color: var(--ck-text);
+  }
+  &.is-over {
+    background: var(--ck-warn-bg);
+    color: var(--ck-warn);
+  }
+}
+.CorkboardColumn-menu.Button {
+  color: var(--ck-muted);
+}
+.CorkboardColumn-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 10px 6px;
+  overflow-y: auto;
+  min-height: 40px;
+}
+.CorkboardColumn-empty {
+  margin: 4px 4px 0;
+  font-size: 12px;
+  color: var(--ck-muted);
+}
+.CorkboardColumn-add {
+  margin: 0 10px 10px;
+  min-height: 36px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ck-muted);
+  text-align: left;
+  padding: 0 8px;
+  font-weight: 600;
+  cursor: pointer;
+  &:hover,
+  &:focus-visible {
+    background: var(--ck-bg);
+    color: var(--ck-text);
+  }
+}
+.CorkboardColumn-composer {
+  padding: 0 10px 10px;
+  textarea {
+    resize: vertical;
+  }
+}
+.CorkboardColumn-composerActions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.CorkboardBoard-addColumn {
+  flex: 0 0 160px;
+  min-height: 44px;
+  border: 1px dashed var(--ck-muted);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ck-muted);
+  font-weight: 600;
+  cursor: pointer;
+}
+.CorkboardDrop {
+  height: 54px;
+  border: 2px dashed var(--ck-primary);
+  border-radius: 8px;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.CorkboardCard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px 11px;
+  border-radius: 8px;
+  background: var(--ck-card);
+  color: var(--ck-text);
+  box-shadow: var(--ck-shadow);
+  cursor: pointer;
+  // A long press must lift the card, not select its words or open the iOS menu.
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  &:hover {
+    box-shadow: 0 0 0 1px var(--ck-primary), var(--ck-shadow);
+  }
+  &:focus-visible {
+    outline: 3px solid var(--ck-primary);
+    outline-offset: 2px;
+  }
+  &.is-done .CorkboardCard-title {
+    color: var(--ck-muted);
+  }
+  &.is-picked {
+    outline: 3px solid var(--ck-primary);
+    outline-offset: 2px;
+    transform: rotate(-1deg) translateY(-2px);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+  }
+}
+.CorkboardCard--lifted {
+  opacity: 0.35;
+}
+.CorkboardDragging,
+.CorkboardDragging * {
+  cursor: grabbing !important;
+}
+.CorkboardCard-cover {
+  height: 6px;
+  margin: -10px -11px 0;
+  border-radius: 8px 8px 0 0;
+}
+.CorkboardCard-moving {
+  position: absolute;
+  top: -9px;
+  right: 8px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: var(--ck-warn-bg);
+  color: var(--ck-warn);
+  font-size: 10px;
+  font-weight: 700;
+}
+.CorkboardCard-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.CorkboardCard-title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.CorkboardCard-check {
+  color: var(--ck-ok);
+  margin-right: 5px;
+}
+.CorkboardCard-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--ck-muted);
+  &:empty {
+    display: none;
+  }
+}
+.CorkboardCard-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  &.is-complete {
+    color: var(--ck-ok);
+  }
+}
+.CorkboardCard-people {
+  display: inline-flex;
+  margin-left: auto;
+  padding-left: 5px;
+  .CorkboardAvatar {
+    margin-left: -5px;
+  }
+}
+.CorkboardCard-more {
+  margin-left: 3px;
+}
+.CorkboardCard--ghost {
+  cursor: grabbing;
+}
+
+// ------------------------------------------------------------------ the card dialog
+
+.Modal.CorkboardCardModal .Modal-content {
+  max-width: 920px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.Modal.CorkboardCardModal .Modal-dialog,
+.CorkboardCardModal.Modal {
+  max-width: 920px;
+}
+.CorkboardCardModal-body {
+  color: var(--ck-text);
+}
+.CorkboardCardModal-top {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.CorkboardCardModal-crumb {
+  flex: 1;
+  font-size: 12px;
+  color: var(--ck-muted);
+  min-width: 0;
+}
+.CorkboardCardModal-titleInput {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.CorkboardCardModal-titleButton {
+  border: 0;
+  background: transparent;
+  color: var(--ck-muted);
+  font-size: 12px;
+  padding: 0;
+  margin-bottom: 10px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.CorkboardCardModal-columns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+}
+.CorkboardCardModal-main {
+  flex: 999 1 420px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.CorkboardCardModal-side {
+  flex: 1 1 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.CorkboardCardModal-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.CorkboardCardModal-sectionHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  h3 {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--ck-muted);
+  }
+}
+.CorkboardCardModal-count {
+  font-size: 12px;
+  color: var(--ck-muted);
+}
+.CorkboardCardModal-none {
+  margin: 0;
+  color: var(--ck-muted);
+}
+.CorkboardCardModal-description {
+  line-height: 1.55;
+}
+.CorkboardCardModal-editorActions,
+.CorkboardCardModal-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+.CorkboardCardModal-inline {
+  display: flex;
+  gap: 8px;
+  .FormControl {
+    flex: 1;
+    min-width: 0;
+  }
+}
+.CorkboardChecklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.CorkboardChecklist-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-height: 34px;
+    cursor: pointer;
+    overflow-wrap: anywhere;
+  }
+  input {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    accent-color: var(--ck-primary);
+  }
+  &.is-done span {
+    color: var(--ck-muted);
+    text-decoration: line-through;
+  }
+}
+.CorkboardThread {
+  border: 1px solid var(--ck-control);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+html:not(#x-hi) .CorkboardThread-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  a {
+    font-weight: 700;
+    color: var(--ck-text);
+  }
+}
+.CorkboardThread-count {
+  font-size: 12px;
+  color: var(--ck-muted);
+}
+.CorkboardThread-reply {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+html:not(#x-hi) .CorkboardThread-more {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ck-primary);
+}
+.CorkboardTabs {
+  display: flex;
+  gap: 16px;
+  border-bottom: 1px solid var(--ck-control);
+  button {
+    border: 0;
+    background: transparent;
+    padding: 6px 0;
+    color: var(--ck-muted);
+    font-weight: 600;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    &.is-active {
+      color: var(--ck-text);
+      border-bottom-color: var(--ck-primary);
+    }
+  }
+}
+.CorkboardComments {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 6px;
+}
+.CorkboardComments-composer,
+.CorkboardComment {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.CorkboardComments-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+  textarea {
+    width: 100%;
+  }
+}
+.CorkboardComment-body {
+  flex: 1;
+  min-width: 0;
+}
+.CorkboardComment-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  strong {
+    color: var(--ck-text);
+  }
+}
+.CorkboardComment-text {
+  overflow-wrap: anywhere;
+}
+.CorkboardField {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  > .Select,
+  > .FormControl,
+  > .CorkboardPicker,
+  > .CorkboardDueEditor,
+  > .CorkboardPeople {
+    align-self: stretch;
+  }
+  h4 {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--ck-muted);
+  }
+  p {
+    margin: 0;
+  }
+}
+.CorkboardPeople {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    span {
+      flex: 1;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+  }
+}
+.CorkboardPicker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.CorkboardPicker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  li button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 40px;
+    padding: 6px 10px;
+    border: 0;
+    background: var(--ck-control);
+    color: var(--ck-text);
+    text-align: left;
+    cursor: pointer;
+    &:hover,
+    &:focus-visible {
+      background: var(--ck-primary);
+      color: var(--body-bg);
+    }
+  }
+  li + li button {
+    border-top: 1px solid var(--ck-bg);
+  }
+}
+.CorkboardLabelPicker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.CorkboardDueEditor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+  .FormControl {
+    width: 100%;
+  }
+}
+.CorkboardCardModal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--ck-control);
+  .Button {
+    width: 100%;
+    text-align: left;
+  }
+}
+
+.CorkboardActivity {
+  ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+}
+.CorkboardActivity-item {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 6px 0;
+  font-size: 13px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+// ------------------------------------------------------------------ dialogs
+
+.CorkboardTemplatePicker,
+.CorkboardVisibilityPicker,
+.CorkboardMoveModal-columns {
+  display: grid;
+  gap: 8px;
+}
+.CorkboardVisibilityPicker--grid {
+  grid-template-columns: repeat(auto-fill, minmax(~'min(220px, 100%)', 1fr));
+}
+.CorkboardTemplatePicker-option,
+.CorkboardVisibilityPicker-option,
+.CorkboardMoveModal-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--ck-control);
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--ck-text);
+  min-height: 44px;
+  input {
+    accent-color: var(--ck-primary);
+    grid-row: span 2;
+  }
+  &.is-on {
+    border: 2px solid var(--ck-primary);
+    padding: 9px 11px;
+  }
+  &.is-locked {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+.CorkboardMoveModal-option {
+  grid-template-columns: auto 1fr auto;
+  input {
+    grid-row: auto;
+  }
+}
+.CorkboardTemplatePicker-name,
+.CorkboardVisibilityPicker-name,
+.CorkboardMoveModal-name {
+  font-weight: 700;
+}
+.CorkboardTemplatePicker-columns,
+.CorkboardVisibilityPicker-help {
+  font-size: 12px;
+  color: var(--ck-muted);
+}
+// Flarum 2's .Form-group is a centred column: stretch ours.
+.CorkboardCreateModal,
+.CorkboardColumnModal,
+.CorkboardMoveModal,
+.CorkboardAddModal {
+  .Form-group {
+    align-items: stretch;
+  }
+  fieldset {
+    border: 0;
+    padding: 0;
+    margin: 0;
+  }
+  legend {
+    font-weight: 700;
+    margin-bottom: 6px;
+    color: var(--ck-text);
+  }
+}
+.CorkboardColumnModal-order,
+.CorkboardModal-actions {
+  display: flex;
+  flex-direction: row !important;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+// ------------------------------------------------------------------ settings
+
+.CorkboardSettingsPage-head h1 {
+  margin: 4px 0 14px;
+  font-size: 22px;
+  color: var(--ck-text);
+}
+.CorkboardSettingsPage-layout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+}
+.CorkboardSettingsPage-tabs {
+  flex: 1 1 190px;
+  max-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.CorkboardSettingsPage-tab {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 6px;
+  color: var(--ck-muted);
+  font-weight: 600;
+  cursor: pointer;
+  &.is-active {
+    background: var(--ck-control);
+    color: var(--ck-text);
+  }
+}
+.CorkboardSettingsPage-content {
+  flex: 999 1 480px;
+  min-width: 0;
+}
+.CorkboardSettingsPage-section {
+  margin-bottom: 26px;
+  h2 {
+    font-size: 15px;
+    margin: 0 0 10px;
+    color: var(--ck-text);
+  }
+  .Form-group {
+    align-items: stretch;
+  }
+  fieldset {
+    border: 0;
+    padding: 0;
+    margin: 0;
+  }
+}
+.CorkboardSettingsPage-reach {
+  margin: 10px 0 0;
+  color: var(--ck-muted);
+}
+.CorkboardSettingsPage-add {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  .FormControl:first-child {
+    flex: 1;
+    min-width: 0;
+  }
+  select {
+    width: auto;
+  }
+}
+.CorkboardSettingsPage-found {
+  margin-bottom: 10px;
+}
+.CorkboardTeamList,
+.CorkboardSettingsList {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  border: 1px solid var(--ck-control);
+  border-radius: 10px;
+  > li {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 9px 12px;
+    color: var(--ck-text);
+  }
+  > li + li {
+    border-top: 1px solid var(--ck-control);
+  }
+}
+.CorkboardTeamList-name,
+.CorkboardSettingsList-name {
+  flex: 1 1 140px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-wrap: anywhere;
+}
+.CorkboardSettingsList .FormControl {
+  flex: 1 1 140px;
+  width: auto;
+  min-width: 0;
+}
+.CorkboardSettingsList-color {
+  flex: 0 1 130px !important;
+}
+.CorkboardTeamList-role {
+  width: auto;
+  min-width: 120px;
+}
+.CorkboardGroupIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 11px;
+}
+.CorkboardGroupIcon--big {
+  width: 32px;
+  height: 32px;
+  font-size: 13px;
+}
+.CorkboardSettingsPage-action {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--ck-control);
+  > div {
+    flex: 1 1 260px;
+    min-width: 0;
+  }
+  strong {
+    color: var(--ck-text);
+  }
+  .helpText {
+    margin: 2px 0 0;
+  }
+}
+
+// ------------------------------------------------------------------ My cards, widgets, chips
+
+.CorkboardMyCardsPage-board {
+  margin-bottom: 18px;
+  h2 {
+    margin: 0 0 8px;
+    font-size: 15px;
+    padding-left: 10px;
+    border-left: 4px solid var(--board-color, var(--ck-primary));
+  }
+}
+html:not(#x-hi) .CorkboardMyCardsPage-board h2 a {
+  color: var(--ck-text);
+}
+.CorkboardMyCardsPage-calendar {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--ck-control);
+  h2 {
+    font-size: 15px;
+    margin: 0 0 6px;
+    color: var(--ck-text);
+  }
+}
+.CorkboardCardList,
+.CorkboardWidget-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+html:not(#x-hi) .CorkboardCardList-item a {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: var(--ck-control);
+  color: var(--ck-text);
+  text-decoration: none;
+  font-size: 12px;
+  &:hover,
+  &:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--ck-primary);
+  }
+}
+.CorkboardCardList-title {
+  flex: 1 1 200px;
+  min-width: 0;
+  font-weight: 700;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.CorkboardCardList-where {
+  color: var(--ck-muted);
+}
+.CorkboardCardList-item.is-done .CorkboardCardList-title {
+  color: var(--ck-muted);
+  text-decoration: line-through;
+}
+
+.CorkboardWidget {
+  color: var(--ck-text);
+  &:not(.CorkboardWidget--bare) {
+    padding: 14px;
+    border: 1px solid var(--ck-control);
+    border-radius: 10px;
+    background: var(--ck-bg);
+  }
+}
+.CorkboardWidget-title {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ck-text);
+}
+html:not(#x-hi) .CorkboardWidget-item a {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--ck-control);
+  color: var(--ck-text);
+  text-decoration: none;
+  &:hover,
+  &:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--ck-primary);
+  }
+}
+.CorkboardWidget-itemTitle {
+  font-weight: 600;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.CorkboardWidget-itemMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--ck-muted);
+  min-width: 0;
+}
+.CorkboardWidget-where {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.CorkboardWidget-empty {
+  margin: 0;
+  color: var(--ck-muted);
+  font-size: 13px;
+}
+html:not(#x-hi) .CorkboardWidget-more,
+html:not(#x-hi) .CorkboardWidget-board {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ck-primary);
+}
+html:not(#x-hi) .CorkboardWidget-board {
+  margin: 0 0 8px;
+  font-size: 15px;
+  color: var(--ck-text);
+}
+.CorkboardStack {
+  display: flex;
+  height: 12px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--ck-control);
+  gap: 2px;
+}
+.CorkboardStack-part {
+  background: var(--ck-primary);
+  &.is-done {
+    background: var(--ck-ok);
+  }
+}
+.CorkboardWidget-summary {
+  margin: 6px 0;
+  font-size: 12px;
+  color: var(--ck-muted);
+}
+.CorkboardWidget-legend {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 12px;
+  color: var(--ck-muted);
+  strong {
+    color: var(--ck-text);
+  }
+}
+
+.CorkboardDiscussionChips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  vertical-align: middle;
+}
+html:not(#x-hi) .CorkboardDiscussionChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 1px 8px;
+  border-radius: 4px;
+  background: var(--ck-control);
+  color: var(--ck-control-text);
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  .icon {
+    color: var(--board-color, var(--ck-primary));
+  }
+}
+// On a coloured discussion hero the chip keeps its own colours.
+.DiscussionHero .CorkboardDiscussionChips {
+  margin-top: 6px;
+}
+
+// ------------------------------------------------------------------ phones
+
+@media (max-width: 767px) {
+  .CorkboardBoardPage .Page-container {
+    padding-left: 0;
+    padding-right: 0;
+  }
+  .CorkboardBoardPage-head,
+  .CorkboardStale {
+    padding: 0 12px;
+  }
+  // One row: the search and a Filters button; the rest opens below it.
+  .CorkboardFilters-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 36px;
+  }
+  .CorkboardFilters-search {
+    max-width: none;
+  }
+  .CorkboardFilters:not(.is-open) {
+    .CorkboardFilters-select,
+    .CorkboardToggle:not(.CorkboardFilters-toggle) {
+      display: none;
+    }
+  }
+  .CorkboardFilters-summary {
+    width: 100%;
+    margin-left: 0;
+  }
+  .CorkboardTeam .CorkboardAvatar:nth-child(n + 4) {
+    display: none;
+  }
+  .CorkboardColumnTabs {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 4px 12px 10px;
+    scrollbar-width: none;
+  }
+  .CorkboardColumnTabs-tab {
+    flex-shrink: 0;
+    min-height: 36px;
+    padding: 0 12px;
+    border-radius: 18px;
+    border: 1px solid var(--ck-control);
+    background: var(--ck-bg);
+    color: var(--ck-text);
+    font-weight: 600;
+    white-space: nowrap;
+    &.is-active {
+      background: var(--ck-primary);
+      border-color: var(--ck-primary);
+      color: var(--body-bg);
+    }
+  }
+  .CorkboardBoard-strip {
+    // One column at a time, the next one peeking.
+    scroll-snap-type: x mandatory;
+    padding: 0 12px 16px;
+    scroll-padding: 0 12px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .CorkboardColumn {
+    flex-basis: 86vw;
+    width: 86vw;
+    max-width: 360px;
+    scroll-snap-align: start;
+    max-height: calc(100vh - 230px);
+  }
+  .CorkboardColumn-head {
+    display: none;
+  }
+  .CorkboardColumn-list {
+    padding-top: 10px;
+  }
+  .CorkboardCard {
+    padding: 12px;
+  }
+  .CorkboardCard-title {
+    font-size: 14px;
+  }
+  .CorkboardBoardPage-titleRow .Button-label {
+    display: none;
+  }
+  .CorkboardCardModal-columns {
+    flex-direction: column;
+  }
+  .CorkboardSettingsPage-tabs {
+    flex-direction: row;
+    max-width: none;
+    overflow-x: auto;
+  }
+  .CorkboardSettingsPage-tab {
+    white-space: nowrap;
+  }
+}

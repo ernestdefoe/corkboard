@@ -74,19 +74,28 @@ class BoardsController extends Controller
         $boards = $boards->take(self::PAGE);
         $this->access->prime($boards, $actor);
 
-        $ids = $boards->pluck('id')->all();
+        // Pinned boards the viewer can still see, for the row on top (first page only).
+        $pinnedBoards = collect();
+        if ($page === 0 && $pins->isNotEmpty() && in_array($tab, ['mine', 'all'], true) && $text === '') {
+            $pinnedBoards = Board::whereVisibleTo($actor)->whereIn('corkboard_boards.id', $pins->keys())->where('corkboard_boards.status', 'active')->get()
+                ->sortBy(fn ($b) => $pins[$b->id])->values();
+            $this->access->prime($pinnedBoards, $actor);
+        }
+
+        // Team pictures and "due this week" for every tile on the page, in one query each.
+        $ids = $boards->pluck('id')->merge($pinnedBoards->pluck('id'))->unique()->values()->all();
         $members = $ids ? $this->db->table('corkboard_members')->whereIn('board_id', $ids)->whereNotNull('user_id')->orderBy('id')->get(['board_id', 'user_id'])->groupBy('board_id') : collect();
         $due = $ids ? $this->db->table('corkboard_cards')->whereIn('board_id', $ids)->whereNull('archived_at')->whereNull('completed_at')
             ->whereNotNull('due_at')->where('due_at', '<=', Carbon::now()->addDays(7))
             ->groupBy('board_id')->selectRaw('board_id, count(*) as n')->pluck('n', 'board_id') : collect();
 
         $userIds = [];
-        $items = [];
-        foreach ($boards as $board) {
+        $tile = function (Board $board) use ($members, $due, $pins, $actor, &$userIds): array {
             $people = array_values(array_unique(array_merge(array_filter([$board->owner_id]), ($members[$board->id] ?? collect())->pluck('user_id')->map(fn ($id) => (int) $id)->all())));
             $people = array_slice($people, 0, 5);
             array_push($userIds, ...$people);
-            $items[] = $this->presenter->boardSummary($board) + [
+
+            return $this->presenter->boardSummary($board) + [
                 'description' => $board->description,
                 'role' => $this->access->role($board, $actor),
                 'people' => $people,
@@ -94,17 +103,9 @@ class BoardsController extends Controller
                 'dueSoon' => (int) ($due[$board->id] ?? 0),
                 'pinned' => isset($pins[$board->id]),
             ];
-        }
-
-        // Pinned boards the viewer can still see, for the row on top (first page only).
-        $pinned = [];
-        if ($page === 0 && $pins->isNotEmpty() && in_array($tab, ['mine', 'all'], true) && $text === '') {
-            $pinnedBoards = Board::whereVisibleTo($actor)->whereIn('corkboard_boards.id', $pins->keys())->where('corkboard_boards.status', 'active')->get();
-            $this->access->prime($pinnedBoards, $actor);
-            foreach ($pinnedBoards->sortBy(fn ($b) => $pins[$b->id]) as $board) {
-                $pinned[] = $this->presenter->boardSummary($board) + ['description' => $board->description, 'role' => $this->access->role($board, $actor), 'people' => [], 'teamSize' => 0, 'dueSoon' => (int) ($due[$board->id] ?? 0), 'pinned' => true];
-            }
-        }
+        };
+        $items = $boards->map($tile)->values()->all();
+        $pinned = $pinnedBoards->map($tile)->values()->all();
 
         return [
             'tab' => $tab,
