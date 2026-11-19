@@ -336,7 +336,8 @@ class CorkboardTest extends TestCase
             $db->flushQueryLog();
             $db->enableQueryLog();
             $response = $this->send($this->request('GET', '/api/notifications', ['authenticatedAs' => 4]));
-            $n = count($db->getQueryLog());
+            // Corkboard's own queries only: core's "last seen" update comes and goes with the clock.
+            $n = count(array_filter($db->getQueryLog(), fn ($q) => str_contains($q['query'], 'corkboard_')));
             $db->disableQueryLog();
             $this->assertSame(count($cardIds), count(json_decode((string) $response->getBody(), true)['data']));
 
