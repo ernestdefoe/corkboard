@@ -38,7 +38,7 @@ class DiscussionCards
             $batch = $this->batches[$request];
             if ($batch['rows'] === null) {
                 $batch['rows'] = [];
-                $rows = Card::whereVisibleTo($context->getActor())
+                $rows = Card::whereVisibleTo($context->getActor())->without('board')
                     ->whereIn('corkboard_cards.discussion_id', array_keys($batch['ids']))
                     ->whereNull('corkboard_cards.archived_at')
                     ->join('corkboard_boards', 'corkboard_boards.id', '=', 'corkboard_cards.board_id')

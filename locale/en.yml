@@ -26,6 +26,7 @@ ernestdefoe-corkboard:
     card:
       discussion_footer: "From the card on [{board}]({url})."
     error:
+      busy: That's already on its way. Try again in a moment.
       assignees: A card can be given to at most 20 people.
       min_posts: You need to post a little more before you can start a board.
       template: That template isn't available.

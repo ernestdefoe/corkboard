@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Tobyz\JsonApiServer\Context as BaseContext;
+use WeakMap;
 
 /**
  * `corkboard-activity`: a board's history, read only, newest first, 30 a page.
@@ -29,16 +30,19 @@ class ActivityResource extends Resource
 {
     public const PAGE = 30;
 
-    /** The board the listed page belongs to (set by its filter). */
-    private ?Board $board = null;
-
-    /** @var EloquentCollection<int, \Illuminate\Database\Eloquent\Model>|null the listed page, read once for its names and its rows */
-    private ?EloquentCollection $page = null;
+    /**
+     * Per request (keyed by the request object, so nothing outlives it): the board the listed page
+     * belongs to, set by its filter, and the page itself, read once for its names and its rows.
+     *
+     * @var WeakMap<object, array{board?: Board, page?: EloquentCollection<int, \Illuminate\Database\Eloquent\Model>}>
+     */
+    private WeakMap $state;
 
     public function __construct(
         private readonly ConnectionInterface $db,
         private readonly Presenter $presenter,
     ) {
+        $this->state = new WeakMap();
     }
 
     public function type(): string
@@ -64,14 +68,15 @@ class ActivityResource extends Resource
                 $int = fn (string $key) => isset($filters[$key]) && is_numeric($filters[$key]) ? (int) $filters[$key] : null;
                 if ($card = $int('card')) {
                     $found = Find::card($actor, $card);
-                    $this->board = $found->board;
+                    $board = $found->board;
                     $query->where('corkboard_activity.card_id', $found->id);
-                } elseif ($board = $int('board')) {
-                    $this->board = Find::board($actor, $board);
+                } elseif ($id = $int('board')) {
+                    $board = Find::board($actor, $id);
                 } else {
                     throw new ModelNotFoundException();
                 }
-                $query->where('corkboard_activity.board_id', $this->board->id);
+                $this->state[$context->request] = ['board' => $board];
+                $query->where('corkboard_activity.board_id', $board->id);
                 // Older than a line already shown: new history never shifts the next page.
                 if ($before = $int('before')) {
                     $query->where('corkboard_activity.id', '<', $before);
@@ -97,7 +102,7 @@ class ActivityResource extends Resource
     /** The page the names were read for (core's Index serializes meta before it reads the rows). */
     public function results(object $query, BaseContext $context): iterable
     {
-        return $this->page ?? parent::results($query, $context);
+        return $this->state[$context->request]['page'] ?? parent::results($query, $context);
     }
 
     /**
@@ -108,11 +113,12 @@ class ActivityResource extends Resource
      */
     private function names(Context $context): array
     {
-        $board = $this->board;
+        $board = $this->state[$context->request]['board'] ?? null;
         if (! $board || ! $context->query instanceof Builder) {
             return [];
         }
-        $rows = $this->page = $context->query->get();
+        $rows = $context->query->get();
+        $this->state[$context->request] = ['board' => $board, 'page' => $rows];
         $actor = $context->getActor();
         $users = $rows->pluck('user_id')->all();
         $groups = [];

@@ -9,6 +9,7 @@ use Flarum\Formatter\Formatter;
 use Flarum\Http\UrlGenerator;
 use Flarum\Locale\TranslatorInterface;
 use Flarum\User\User;
+use Illuminate\Contracts\Cache\Repository;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
@@ -27,10 +28,25 @@ class Discussions
         private readonly TranslatorInterface $translator,
         private readonly Log $log,
         private readonly Settings $settings,
+        private readonly Repository $cache,
     ) {
     }
 
     public function start(Card $card, User $actor, ServerRequestInterface $request): Discussion
+    {
+        // One start per card at a time: a second click waits for nothing, it's told to try again.
+        $lock = $this->cache->lock('corkboard.discussion.'.$card->id, 30);
+        if (! $lock->get()) {
+            throw Refusal::because('busy');
+        }
+        try {
+            return $this->create($card->refresh(), $actor, $request);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function create(Card $card, User $actor, ServerRequestInterface $request): Discussion
     {
         $board = $card->board;
         $this->access->assert($board, $actor, 'editor');

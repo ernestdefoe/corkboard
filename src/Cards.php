@@ -340,6 +340,7 @@ class Cards
         if (! $owner && ! $this->access->can($board, $actor, 'manager')) {
             throw new PermissionDeniedException();
         }
+        // Before the delete, on purpose: listeners (Renown) read the card's assignees, which go with it.
         $this->dispatcher->dispatch(new CardDeleted($card, $actor));
         $this->db->transaction(function () use ($card, $board, $actor) {
             $card->delete();

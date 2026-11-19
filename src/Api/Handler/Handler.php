@@ -37,11 +37,6 @@ abstract class Handler implements RequestHandlerInterface
         return is_array($body) ? $body : [];
     }
 
-    protected function param(ServerRequestInterface $request, string $name): int
-    {
-        return (int) Arr::get($request->getQueryParams(), $name, 0);
-    }
-
     protected function id(ServerRequestInterface $request): int
     {
         return (int) Arr::get($request->getAttribute('routeParameters', []), 'id');

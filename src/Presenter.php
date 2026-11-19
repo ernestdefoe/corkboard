@@ -111,16 +111,12 @@ class Presenter
      * @param list<int>|null $sliceColumns when set, only each column's first SLICE cards
      * @return Collection<int, \stdClass>
      */
-    public function openCards(int $boardId, ?array $sliceColumns = null, ?int $column = null, ?int $afterPosition = null): Collection
+    public function openCards(int $boardId, ?array $sliceColumns = null): Collection
     {
         $base = fn () => $this->db->table('corkboard_cards')
             ->where('board_id', $boardId)->whereNull('archived_at')
             ->select(['id', 'column_id', 'position', 'title', 'priority', 'due_at', 'due_all_day', 'completed_at', 'user_id', 'discussion_id', 'cover_color', 'comment_count', 'checklist_total', 'checklist_done']);
 
-        if ($column !== null) {
-            return $base()->where('column_id', $column)->when($afterPosition !== null, fn ($q) => $q->where('position', '>', $afterPosition))
-                ->orderBy('position')->orderBy('id')->limit(self::SLICE)->get();
-        }
         if ($sliceColumns === null) {
             return $base()->orderBy('position')->orderBy('id')->get();
         }

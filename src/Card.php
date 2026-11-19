@@ -76,9 +76,4 @@ class Card extends AbstractModel
         // Even a deleted board (the foreign key guarantees one exists): callers check deleted_at.
         return $this->belongsTo(Board::class, 'board_id')->withoutGlobalScope('notDeleted');
     }
-
-    public function isDone(): bool
-    {
-        return $this->completed_at !== null;
-    }
 }

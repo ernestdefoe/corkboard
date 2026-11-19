@@ -72,7 +72,17 @@ class Push
             $this->pending = [];
             $this->registered = false;
         };
-        $this->db instanceof Connection ? $this->db->afterCommit($flush) : $flush();
+        if (! $this->db instanceof Connection) {
+            $flush();
+
+            return;
+        }
+        $this->db->afterCommit($flush);
+        // A rolled-back change sends nothing, and the next one registers afresh.
+        $this->db->afterRollBack(function () {
+            $this->pending = [];
+            $this->registered = false;
+        });
     }
 
     /** "Ana is moving this": a short-lived hint, team only. */

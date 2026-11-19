@@ -388,6 +388,19 @@ class CorkboardTest extends TestCase
     }
 
     #[Test]
+    public function a_second_start_discussion_while_one_is_running_is_told_to_wait(): void
+    {
+        $this->english();
+        $lock = $this->app()->getContainer()->make(\Illuminate\Contracts\Cache\Repository::class)->lock('corkboard.discussion.200', 30);
+        $this->assertTrue($lock->get());
+        [$status, $json] = $this->call('POST', '/cards/200/discussion', 3);
+        $lock->release();
+        $this->assertSame(422, $status);
+        $this->assertStringContainsString('Try again', json_encode($json) ?: '');
+        $this->assertNull($this->database()->table('corkboard_cards')->where('id', 200)->value('discussion_id'));
+    }
+
+    #[Test]
     public function the_calendar_feed_lists_the_owners_due_cards(): void
     {
         $this->write('PATCH', 'cards', 200, 3, ['assigneeIds' => [4], 'dueAt' => '2030-04-17T15:00:00Z']);
