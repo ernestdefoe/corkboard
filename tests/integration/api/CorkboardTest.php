@@ -421,7 +421,7 @@ class CorkboardTest extends TestCase
         $schema->table('users', fn (\Illuminate\Database\Schema\Blueprint $t) => $t->string('corkboard_feed_token', 40)->nullable()->unique());
         $this->database()->table('users')->where('id', 4)->update(['corkboard_feed_token' => str_repeat('a', 40)]);
 
-        $migration = require __DIR__.'/../../../migrations/2026_11_19_000004_create_corkboard_feed_tokens.php';
+        $migration = require __DIR__.'/../../../migrations/2026_11_19_000005_upgrade_from_corkboard_1_0.php';
         $migration['up']($schema);
 
         $this->assertFalse($schema->hasColumn('users', 'corkboard_feed_token'));
@@ -861,18 +861,24 @@ class CorkboardTest extends TestCase
     }
 
     #[Test]
-    public function board_and_card_history_come_from_one_route(): void
+    public function board_and_card_history_is_a_read_only_resource(): void
     {
         $this->write('PATCH', 'cards', 200, 3, ['title' => 'Renamed']);
         $this->write('PATCH', 'boards', 2, 3, ['description' => 'Notes']);
-        [$status, $json] = $this->call('GET', '/activity?board=2', 4);
+        [$status, $json] = $this->read('activity', '?filter[board]=2', 4);
         $this->assertSame(200, $status);
-        $this->assertSame(['board_updated', 'card_renamed'], array_column($json['items'], 'type'));
-        $this->assertSame('Renamed', $json['cards'][200]);
-        [, $json] = $this->call('GET', '/activity?card=200', 4);
-        $this->assertSame(['card_renamed'], array_column($json['items'], 'type'));
-        $this->assertSame(404, $this->call('GET', '/activity?board=2', 2)[0]);
-        $this->assertSame(404, $this->call('GET', '/activity?card=200', 2)[0]);
+        $this->assertSame(['board_updated', 'card_renamed'], array_column(array_column($json['data'], 'attributes'), 'type'));
+        $this->assertSame('Renamed', $json['meta']['names']['cards'][200]);
+        [, $json] = $this->read('activity', '?filter[card]=200', 4);
+        $this->assertSame(['card_renamed'], array_column(array_column($json['data'], 'attributes'), 'type'));
+        // Older than a line already shown.
+        [, $json] = $this->read('activity', '?filter[board]=2&filter[before]='.$json['data'][0]['id'], 4);
+        $this->assertSame([], $json['data']);
+        $this->assertSame(404, $this->read('activity', '?filter[board]=2', 2)[0]);
+        $this->assertSame(404, $this->read('activity', '?filter[card]=200', 2)[0]);
+        $this->assertSame(404, $this->read('activity', '', 4)[0], 'a board or a card, always');
+        // Read only.
+        $this->assertSame(405, $this->api('POST', '/corkboard-activity', 3, ['data' => ['type' => 'corkboard-activity', 'attributes' => ['type' => 'x']]])[0]);
     }
 
     #[Test]
@@ -1060,7 +1066,7 @@ class CorkboardTest extends TestCase
         $this->assertSame([null, null, true], [$json['data']['attributes']['view']['groups'][10]['name'], $json['data']['attributes']['view']['groups'][10]['count'], $json['data']['attributes']['view']['groups'][10]['hidden']]);
         $this->assertStringNotContainsString('Volunteers', $this->read('boards', '/2', 3)[2]);
         $this->write('PATCH', 'members', 2, 3, ['role' => 'editor']);
-        $this->assertStringNotContainsString('Volunteers', $this->call('GET', '/activity?board=2', 4)[2]);
+        $this->assertStringNotContainsString('Volunteers', $this->read('activity', '?filter[board]=2', 4)[2]);
         [, $json] = $this->read('boards', '/2', 6);
         $this->assertSame(['Volunteers', 1], [$json['data']['attributes']['view']['groups'][10]['name'], $json['data']['attributes']['view']['groups'][10]['count']]);
     }
@@ -1100,9 +1106,163 @@ class CorkboardTest extends TestCase
         $this->assertSame('Kept', $this->database()->table('corkboard_cards')->where('id', 200)->value('title'));
         // The removed files' rows are forgotten, so a rollback never asks for a file that's gone:
         // every row Corkboard has in the migrations table names a file that exists.
-        (require __DIR__.'/../../../migrations/2026_11_19_000005_forget_removed_corkboard_migrations.php')['up']($schema);
+        (require __DIR__.'/../../../migrations/2026_11_19_000005_upgrade_from_corkboard_1_0.php')['up']($schema);
         foreach ($this->database()->table('migrations')->where('extension', 'ernestdefoe-corkboard')->pluck('migration') as $name) {
             $this->assertFileExists(__DIR__."/../../../migrations/$name.php");
         }
+    }
+
+    #[Test]
+    public function a_linked_discussion_shows_only_what_cores_api_shows_the_viewer(): void
+    {
+        $now = Carbon::now();
+        $post = fn (int $id, int $discussion, int $number, string $words, array $more = []) => $more + [
+            'id' => $id, 'discussion_id' => $discussion, 'number' => $number, 'type' => 'comment', 'user_id' => 3,
+            'content' => "<t><p>$words</p></t>", 'created_at' => $now->copy()->addMinutes($id), 'is_private' => false,
+        ];
+        $this->prepareDatabase([
+            'discussions' => [
+                ['id' => 7, 'title' => 'Venue ideas', 'slug' => 'venue-ideas', 'comment_count' => 3, 'participant_count' => 1, 'last_post_number' => 3, 'created_at' => $now, 'user_id' => 3, 'first_post_id' => 70, 'is_private' => false],
+                ['id' => 8, 'title' => 'SECRET-TITLE', 'slug' => 'secret', 'comment_count' => 2, 'participant_count' => 1, 'last_post_number' => 2, 'created_at' => $now, 'user_id' => 3, 'first_post_id' => 80, 'is_private' => true],
+            ],
+            'posts' => [
+                $post(70, 7, 1, 'Opening'),
+                $post(71, 7, 2, 'VISIBLE-REPLY'),
+                $post(72, 7, 3, 'HIDDEN-REPLY', ['hidden_at' => $now, 'hidden_user_id' => 1]),
+                $post(80, 8, 1, 'Opening'),
+                $post(81, 8, 2, 'PRIVATE-REPLY'),
+            ],
+        ]);
+        $this->app();
+        $this->database()->table('corkboard_cards')->where('id', 200)->update(['discussion_id' => 7]);
+
+        [$status, $json, $raw] = $this->read('cards', '/200', 4);
+        $this->assertSame(200, $status, $raw);
+        $discussion = $json['data']['attributes']['view']['discussion'];
+        $this->assertSame('Venue ideas', $discussion['title']);
+        $this->assertSame(['VISIBLE-REPLY'], array_column($discussion['lastReplies'], 'excerpt'), 'a hidden reply never comes along');
+        $this->assertSame('ana', $discussion['lastReplies'][0]['user']['username']);
+        $this->assertStringNotContainsString('HIDDEN-REPLY', $raw);
+
+        // A private discussion the viewer can't see: no title, no replies, nothing.
+        $this->database()->table('corkboard_cards')->where('id', 200)->update(['discussion_id' => 8]);
+        [, $json, $raw] = $this->read('cards', '/200', 4);
+        $this->assertNull($json['data']['attributes']['view']['discussion']);
+        $this->assertStringNotContainsString('SECRET-TITLE', $raw);
+        $this->assertStringNotContainsString('PRIVATE-REPLY', $raw);
+    }
+
+    #[Test]
+    public function the_endpoints_ask_the_models_policies(): void
+    {
+        $this->app();
+        $user = fn (int $id) => User::query()->findOrFail($id);
+        $board = fn (int $id) => \ErnestDefoe\Corkboard\Board::query()->findOrFail($id);
+        $card = fn (int $id) => \ErnestDefoe\Corkboard\Card::query()->findOrFail($id);
+        // Marc edits board 2's cards but doesn't manage it; the normal user only sees board 1.
+        $this->assertTrue($user(4)->can('addCards', $board(2)));
+        $this->assertFalse($user(4)->can('manage', $board(2)));
+        $this->assertFalse($user(4)->can('update', $board(2)));
+        $this->assertTrue($user(3)->can('update', $board(2)));
+        $this->assertFalse($user(2)->can('update', $card(100)));
+        $this->assertTrue($user(2)->can('watch', $card(100)));
+        $this->assertFalse($user(4)->can('update', $card(500)), 'a completed board is read-only');
+        $this->assertTrue($user(4)->can('delete', \ErnestDefoe\Corkboard\Member::query()->findOrFail(1)), 'anyone may leave a team');
+        $this->assertFalse($user(4)->can('delete', \ErnestDefoe\Corkboard\Member::query()->findOrFail(2)));
+        $this->assertTrue($user(6)->can('delete', $board(2)), 'moderators may delete any board');
+        $this->assertFalse($user(4)->can('delete', $board(2)), 'a team member may not');
+        // Following a public board's card is a viewer's write; changing it isn't.
+        $this->assertSame(200, $this->write('PATCH', 'cards', 100, 2, ['watching' => true])[0]);
+        $this->assertSame(403, $this->write('PATCH', 'cards', 100, 2, ['title' => 'Mine now'])[0]);
+        $this->assertSame(403, $this->write('POST', 'cards', null, 2, ['boardId' => 1, 'columnId' => 11, 'title' => 'x'])[0]);
+        $this->assertSame(404, $this->write('POST', 'cards', null, 2, ['boardId' => 2, 'columnId' => 21, 'title' => 'x'])[0]);
+        $this->assertSame(422, $this->write('POST', 'cards', null, 4, ['columnId' => 21, 'title' => 'x'])[0], 'no board: the create\'s own validation');
+    }
+
+    #[Test]
+    public function a_team_holds_one_row_per_person_or_group(): void
+    {
+        $this->assertSame(201, $this->write('POST', 'members', null, 3, ['boardId' => 2, 'userId' => 5, 'role' => 'viewer'])[0]);
+        $this->assertSame(201, $this->write('POST', 'members', null, 3, ['boardId' => 2, 'userId' => 5, 'role' => 'editor'])[0]);
+        $this->assertSame(['editor'], $this->database()->table('corkboard_members')->where('board_id', 2)->where('user_id', 5)->pluck('role')->all());
+        $this->write('POST', 'members', null, 3, ['boardId' => 2, 'groupId' => 10, 'role' => 'manager']);
+        $this->assertSame(['manager'], $this->database()->table('corkboard_members')->where('board_id', 2)->where('group_id', 10)->pluck('role')->all());
+        // The database keeps it so, even for a write that skips the check.
+        $this->expectException(\Illuminate\Database\UniqueConstraintViolationException::class);
+        $this->database()->table('corkboard_members')->insert(['board_id' => 2, 'user_id' => 5, 'role' => 'viewer']);
+    }
+
+    #[Test]
+    public function changing_your_own_role_answers_with_your_new_role(): void
+    {
+        $this->write('PATCH', 'members', 1, 3, ['role' => 'manager']);
+        [$status, $json] = $this->write('PATCH', 'members', 1, 4, ['role' => 'viewer']);
+        $this->assertSame(200, $status);
+        $this->assertSame('viewer', $json['role']);
+        $this->assertFalse($json['abilities']['manage']);
+    }
+
+    #[Test]
+    public function a_board_copy_shifts_due_dates_by_a_sane_number_of_days(): void
+    {
+        $this->assertSame(422, $this->call('POST', '/boards/2/clone', 3, ['due' => 99999999])[0]);
+        $this->assertSame(422, $this->call('POST', '/boards/2/clone', 3, ['due' => 'soon'])[0]);
+        $this->assertSame(422, $this->call('POST', '/boards/2/clone', 3, ['due' => 1.5])[0]);
+        $this->database()->table('corkboard_cards')->where('id', 200)->update(['due_at' => '2030-01-01 12:00:00']);
+        [$status, $json] = $this->call('POST', '/boards/2/clone', 3, ['due' => -3650]);
+        $this->assertSame(200, $status);
+        $this->assertStringStartsWith('2020-01-0', (string) $this->database()->table('corkboard_cards')->where('board_id', $json['id'])->value('due_at'));
+    }
+
+    #[Test]
+    public function erasing_a_member_by_deletion_removes_their_comments(): void
+    {
+        $this->write('POST', 'comments', null, 4, ['cardId' => 200, 'content' => 'Mine']);
+        $this->write('POST', 'comments', null, 3, ['cardId' => 200, 'content' => 'Ana\'s']);
+        $c = $this->app()->getContainer();
+        $type = new \ErnestDefoe\Corkboard\Gdpr\CorkboardData(
+            User::query()->findOrFail(4), null, $c->make(\Illuminate\Contracts\Filesystem\Factory::class),
+            $c->make(\Flarum\Settings\SettingsRepositoryInterface::class), $c->make(\Flarum\Http\UrlGenerator::class),
+            $c->make(\Flarum\Locale\TranslatorInterface::class),
+        );
+        $type->delete();
+        $this->assertSame(0, $this->database()->table('corkboard_comments')->where('content', 'like', '%Mine%')->count());
+        $this->assertSame(1, $this->database()->table('corkboard_comments')->where('card_id', 200)->count(), 'everyone else\'s stay');
+        $this->assertSame(1, (int) $this->database()->table('corkboard_cards')->where('id', 200)->value('comment_count'));
+        $this->assertSame(0, $this->database()->table('corkboard_members')->where('user_id', 4)->count());
+    }
+
+    #[Test]
+    public function the_moving_hint_never_refuses_a_fidgety_drag(): void
+    {
+        foreach (range(1, 8) as $i) {
+            $this->assertSame(204, $this->call('POST', '/boards/2/moving', 4, ['cardId' => 200])[0]);
+        }
+        $this->assertSame(8, (int) $this->app()->getContainer()->make(\Illuminate\Contracts\Cache\Repository::class)->get('corkboard-moving.4'), 'counted: past five in ten seconds, none is sent');
+    }
+
+    #[Test]
+    public function the_outbox_leaves_out_boards_a_recipient_can_no_longer_see(): void
+    {
+        $sent = [];
+        $c = $this->app()->getContainer();
+        $c->instance(\Flarum\Notification\NotificationMailer::class, new class($sent) extends \Flarum\Notification\NotificationMailer {
+            public function __construct(private array &$sent)
+            {
+            }
+
+            public function send(\Flarum\Notification\MailableInterface&\Flarum\Notification\Blueprint\BlueprintInterface $blueprint, User $user): void
+            {
+                $this->sent[] = $user->id;
+            }
+        });
+        $this->write('PATCH', 'cards', 200, 3, ['assigneeIds' => [4, 5]]);
+        $this->write('PATCH', 'cards', 100, 3, ['assigneeIds' => [4]]);
+        // Marc is taken off board 2's team before the email goes; Vol is still on it through Volunteers.
+        $this->database()->table('corkboard_members')->where('id', 1)->delete();
+        $c->make(\ErnestDefoe\Corkboard\Mail\Outbox::class)->flush(true);
+        sort($sent);
+        $this->assertSame([4, 5], $sent, 'Marc still hears about board 1');
+        $this->assertSame(0, $this->database()->table('corkboard_outbox')->count());
     }
 }

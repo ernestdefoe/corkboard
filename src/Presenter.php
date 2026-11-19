@@ -3,9 +3,9 @@
 namespace ErnestDefoe\Corkboard;
 
 use Carbon\Carbon;
+use Flarum\Api\Client;
 use Flarum\Formatter\Formatter;
 use Flarum\Group\Group;
-use Flarum\Post\Post;
 use Flarum\User\User;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Support\Collection;
@@ -30,6 +30,7 @@ class Presenter
         private readonly Formatter $formatter,
         private readonly Extensions $extensions,
         private readonly Projects $projects,
+        private readonly Client $api,
     ) {
     }
 
@@ -49,7 +50,7 @@ class Presenter
         if ($big) {
             // Open cards per column in one grouped count, for the "N more" of a big column.
             $counts = $this->db->table('corkboard_cards')->where('board_id', $board->id)->whereNull('archived_at')
-                ->groupBy('column_id')->selectRaw('column_id, count(*) as n')->pluck('n', 'column_id');
+                ->groupBy('column_id')->select('column_id')->selectRaw('count(*) as n')->pluck('n', 'column_id');
             foreach ($columns as $column) {
                 $shown = count(array_filter($slim, fn ($c) => $c['columnId'] === $column->id));
                 $more[$column->id] = max(0, (int) ($counts[$column->id] ?? 0) - $shown);
@@ -268,29 +269,61 @@ class Presenter
         ];
     }
 
-    /** @return array<string, mixed>|null the linked discussion and its last three replies, if this viewer may see it */
+    /**
+     * The linked discussion and its last three replies, if this viewer may see it, read the way the
+     * forum itself reads them: one request to core's posts endpoint through Flarum's internal API
+     * client, as the viewer (their session too). That runs every extension's API middleware and
+     * field changes, so whatever hides or rewrites a title or a post for this person (a hidden or
+     * private discussion, a post they can't see, Spoiler Shield's gate) has already happened to
+     * what comes back. The last four comment posts come with their discussion and authors; the
+     * first post isn't a reply. A fixed number of queries, whatever the discussion's size.
+     *
+     * @return array<string, mixed>|null
+     */
     public function discussion(int $id, User $actor, ServerRequestInterface $request): ?array
     {
-        $discussion = \Flarum\Discussion\Discussion::whereVisibleTo($actor)->find($id);
-        if (! $discussion) {
+        $response = $this->api->withActor($actor)->withParentRequest($request)
+            ->withQueryParams([
+                'filter' => ['discussion' => (string) $id, 'type' => 'comment'],
+                'sort' => '-number',
+                'page' => ['limit' => 4],
+                'include' => 'user,discussion',
+            ])
+            ->get('/posts');
+        $doc = $response->getStatusCode() === 200 ? json_decode((string) $response->getBody(), true) : null;
+        $included = [];
+        foreach ((array) ($doc['included'] ?? []) as $resource) {
+            $included[$resource['type'].':'.$resource['id']] = $resource['attributes'] ?? [];
+        }
+        $discussion = $included['discussions:'.$id] ?? null;
+        if ($discussion === null) {
             return null;
         }
-        $posts = Post::whereVisibleTo($actor)->where('discussion_id', $id)->where('type', 'comment')
-            ->where('number', '>', 1)->orderByDesc('number')->limit(3)->with('user')->get()->reverse();
+        $replies = array_reverse(array_slice(array_filter((array) $doc['data'], fn (array $post) => ($post['attributes']['number'] ?? 0) > 1), 0, 3));
 
         return [
-            'id' => $discussion->id,
-            'title' => $discussion->title,
-            'slug' => $discussion->slug,
-            'replyCount' => max(0, (int) $discussion->comment_count - 1),
-            'lastReplies' => $posts->map(fn (Post $p) => [
-                'id' => $p->id,
-                'number' => $p->number,
-                'createdAt' => $p->created_at?->toIso8601String(),
-                'user' => $p->user ? $this->user($p->user) : null,
-                // An allow-list excerpt: spoilers, quotes and code never come along.
-                'excerpt' => Excerpt::make($p instanceof \Flarum\Post\CommentPost ? $p->formatContent($request) : null, 160),
-            ])->values()->all(),
+            'id' => $id,
+            'title' => $discussion['title'] ?? null,
+            'slug' => $discussion['slug'] ?? null,
+            'replyCount' => max(0, (int) ($discussion['commentCount'] ?? 1) - 1),
+            'lastReplies' => array_map(function (array $post) use ($included) {
+                $author = $included['users:'.($post['relationships']['user']['data']['id'] ?? '')] ?? null;
+
+                return [
+                    'id' => (int) $post['id'],
+                    'number' => (int) $post['attributes']['number'],
+                    'createdAt' => $post['attributes']['createdAt'] ?? null,
+                    'user' => $author ? [
+                        'id' => (int) $post['relationships']['user']['data']['id'],
+                        'name' => $author['displayName'] ?? null,
+                        'username' => $author['username'] ?? null,
+                        'slug' => $author['slug'] ?? null,
+                        'avatarUrl' => $author['avatarUrl'] ?? null,
+                    ] : null,
+                    // An allow-list excerpt of the contentHtml as the API gave it to this viewer.
+                    'excerpt' => Excerpt::make(is_string($post['attributes']['contentHtml'] ?? null) ? $post['attributes']['contentHtml'] : null, 160),
+                ];
+            }, $replies),
         ];
     }
 
@@ -338,7 +371,7 @@ class Presenter
         $out = [];
         $seesHidden = $actor->hasPermission('corkboard.moderate') || $actor->hasPermission('viewHiddenGroups');
         // Members per group in one grouped count.
-        $counts = $this->db->table('group_user')->whereIn('group_id', $ids)->groupBy('group_id')->selectRaw('group_id, count(*) as n')->pluck('n', 'group_id');
+        $counts = $this->db->table('group_user')->whereIn('group_id', $ids)->groupBy('group_id')->select('group_id')->selectRaw('count(*) as n')->pluck('n', 'group_id');
         foreach (Group::query()->whereIn('id', $ids)->get() as $group) {
             if ($group->is_hidden && ! $seesHidden) {
                 $out[(int) $group->id] = ['id' => $group->id, 'name' => null, 'color' => null, 'icon' => null, 'count' => null, 'hidden' => true];

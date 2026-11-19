@@ -5,7 +5,7 @@ import Icon from 'flarum/common/components/Icon';
 import Link from 'flarum/common/components/Link';
 import classList from 'flarum/common/utils/classList';
 import type Mithril from 'mithril';
-import { boardUrl, call, groupName, t, tx, write, type Group, type Person, type Visibility } from '../util';
+import { boardUrl, call, findPeople, groupName, t, tx, write, type Group, type Person, type Visibility } from '../util';
 import { PageStructure } from './core';
 import { boardState, leaveBoard, type BoardState } from './BoardState';
 import ColumnModal from './ColumnModal';
@@ -153,7 +153,7 @@ export default class SettingsPage extends Page {
     clearTimeout(this.timer);
     if (!q.trim()) return;
     this.timer = window.setTimeout(() => {
-      call('GET', '/people', undefined, { q: q.trim(), groups: 1 }, true).then((found) => {
+      findPeople(q.trim(), true).then((found) => {
         this.found = found;
         m.redraw();
       });

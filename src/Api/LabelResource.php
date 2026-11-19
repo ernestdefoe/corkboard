@@ -49,9 +49,9 @@ class LabelResource extends Resource
     {
         return [
             Endpoint\Show::make(),
-            Endpoint\Create::make()->authenticated(),
-            Endpoint\Update::make()->authenticated(),
-            Endpoint\Delete::make()->authenticated(),
+            self::createOn('boardId', 'manage'),
+            Endpoint\Update::make()->authenticated()->can('update'),
+            Endpoint\Delete::make()->authenticated()->can('delete'),
         ];
     }
 

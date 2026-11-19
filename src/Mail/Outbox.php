@@ -3,6 +3,7 @@
 namespace ErnestDefoe\Corkboard\Mail;
 
 use Carbon\Carbon;
+use ErnestDefoe\Corkboard\Access;
 use ErnestDefoe\Corkboard\Board;
 use ErnestDefoe\Corkboard\Card;
 use ErnestDefoe\Corkboard\Notification\DigestBlueprint;
@@ -12,6 +13,7 @@ use Flarum\Notification\NotificationMailer;
 use Flarum\Settings\SettingsRepositoryInterface;
 use Flarum\User\User;
 use Illuminate\Database\ConnectionInterface;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Collection;
 use Psr\Log\LoggerInterface;
 
@@ -29,12 +31,15 @@ class Outbox
         private readonly UrlGenerator $url,
         private readonly LoggerInterface $logger,
         private readonly SettingsRepositoryInterface $settings,
+        private readonly Access $access,
     ) {
     }
 
     /**
-     * A fixed number of queries per run (the waiting rows, the people, the cards and the actors
-     * named, the clean-up), plus one per person for the boards they may still see.
+     * A fixed number of queries per run: the waiting rows, the people with their groups, the
+     * boards, their team rows, the cards and the actors named, the clean-up. Who may still see
+     * each board is worked out per board (Access::audience); only someone no team row lets in
+     * costs a read of their permissions.
      */
     public function flush(bool $now = false): int
     {
@@ -47,7 +52,8 @@ class Outbox
         $all = $all->filter(fn ($item) => Carbon::parse($item->created_at, 'UTC')->lte($ready[$item->user_id]));
         $this->db->table('corkboard_outbox')->whereIn('id', $all->pluck('id'))->delete();
 
-        $users = User::query()->whereIn('id', $ready->keys())->get()->keyBy('id');
+        $users = User::query()->whereIn('id', $ready->keys())->with('groups')->get()->keyBy('id');
+        $seen = $this->audiences($all, $users);
         $cards = Card::query()->whereIn('id', $all->pluck('card_id')->filter()->unique())->get()->keyBy('id');
         $actors = User::query()->whereIn('id', $all->pluck('actor_id')->filter()->unique())->get()->keyBy('id');
         $locale = $this->translator->getLocale();
@@ -55,7 +61,7 @@ class Outbox
         try {
             foreach ($all->groupBy('user_id') as $userId => $items) {
                 $user = $users[$userId] ?? null;
-                if ($user && $user->is_email_confirmed && $this->send($user, $items, $cards, $actors)) {
+                if ($user && $user->is_email_confirmed && $this->send($user, $items, $seen, $cards, $actors)) {
                     $sent++;
                 }
             }
@@ -75,8 +81,9 @@ class Outbox
      */
     private function ready(bool $now): Collection
     {
+        $at = $this->db->getQueryGrammar()->wrap('created_at');
         $rows = $this->db->table('corkboard_outbox')->groupBy('user_id')
-            ->selectRaw('user_id, min(created_at) as oldest, max(created_at) as newest')->get();
+            ->select('user_id')->selectRaw("min($at) as oldest, max($at) as newest")->get();
         $ready = collect();
         foreach ($rows as $row) {
             $oldest = Carbon::parse($row->oldest, 'UTC');
@@ -90,17 +97,40 @@ class Outbox
     }
 
     /**
+     * The boards in this batch, each with the ids of the recipients who may still see it: the
+     * boards and all their team rows in one query each, then Access::audience per board.
+     *
+     * @param Collection<int, \stdClass> $items
+     * @param Collection<array-key, User> $users
+     * @return array<int, array{board: Board, who: array<int, true>}>
+     */
+    private function audiences(Collection $items, Collection $users): array
+    {
+        $boards = Board::query()->whereIn('id', $items->pluck('board_id')->unique())->get();
+        $rows = $this->db->table('corkboard_members')->whereIn('board_id', $boards->pluck('id'))->get(['board_id', 'user_id', 'group_id'])->groupBy('board_id');
+        $seen = [];
+        foreach ($boards as $board) {
+            $waiting = $users->only($items->where('board_id', $board->id)->pluck('user_id')->unique()->all());
+            $who = $this->access->audience($board, new EloquentCollection($waiting->values()->all()), $rows[$board->id] ?? collect());
+            $seen[(int) $board->id] = ['board' => $board, 'who' => array_fill_keys($who->pluck('id')->map(fn ($id) => (int) $id)->all(), true)];
+        }
+
+        return $seen;
+    }
+
+    /**
      * One person's email, written in their language (or the forum's): the locale is set before
      * any line is translated.
      *
      * @param Collection<int, \stdClass> $items
+     * @param array<int, array{board: Board, who: array<int, true>}> $seen
      * @param Collection<array-key, Card> $cards
      * @param Collection<array-key, User> $actors
      */
-    private function send(User $user, Collection $items, Collection $cards, Collection $actors): bool
+    private function send(User $user, Collection $items, array $seen, Collection $cards, Collection $actors): bool
     {
         $this->translator->setLocale((string) ($user->getPreference('locale') ?: $this->settings->get('default_locale')));
-        $lines = $this->lines($user, $items, $cards, $actors);
+        $lines = $this->lines($user, $items, $seen, $cards, $actors);
         if (! $lines) {
             return false;
         }
@@ -117,20 +147,19 @@ class Outbox
     }
 
     /**
-     * What they may still see of it, as lines (the boards checked as this person, now).
+     * What they may still see of it, as lines (each board's audience worked out now).
      *
      * @param Collection<int, \stdClass> $items
+     * @param array<int, array{board: Board, who: array<int, true>}> $seen
      * @param Collection<array-key, Card> $cards
      * @param Collection<array-key, User> $actors
      * @return list<array{text: string, url: string, board: string}>
      */
-    private function lines(User $user, Collection $items, Collection $cards, Collection $actors): array
+    private function lines(User $user, Collection $items, array $seen, Collection $cards, Collection $actors): array
     {
-        $boards = Board::whereVisibleTo($user)->whereIn('id', $items->pluck('board_id')->unique())->get()->keyBy('id');
-
         $lines = [];
         foreach ($items as $item) {
-            $board = $boards[$item->board_id] ?? null;
+            $board = isset($seen[(int) $item->board_id]['who'][(int) $user->id]) ? $seen[(int) $item->board_id]['board'] : null;
             $card = $item->card_id ? ($cards[$item->card_id] ?? null) : null;
             if (! $board || ($item->card_id && (! $card || $card->board_id !== $board->id))) {
                 continue;

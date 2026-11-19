@@ -22,7 +22,7 @@ class BoardProgress extends Handler
         $board = Find::board($actor, $this->id($request));
         // Cards per column in one grouped count (the builder has no grouped count of its own).
         $counts = $this->db->table('corkboard_cards')->where('board_id', $board->id)->whereNull('archived_at')
-            ->groupBy('column_id')->selectRaw('column_id, count(*) as n')->pluck('n', 'column_id');
+            ->groupBy('column_id')->select('column_id')->selectRaw('count(*) as n')->pluck('n', 'column_id');
         $columns = $this->db->table('corkboard_columns')->where('board_id', $board->id)->orderBy('position')->orderBy('id')->get(['id', 'title', 'is_done']);
         $next = $this->db->table('corkboard_cards')->where('board_id', $board->id)->whereNull('archived_at')->whereNull('completed_at')
             ->whereNotNull('due_at')->orderBy('due_at')->limit(3)->get(['id', 'title', 'due_at', 'due_all_day']);

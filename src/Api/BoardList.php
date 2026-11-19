@@ -126,7 +126,7 @@ class BoardList
         // Cards due within a week, per board, in one grouped count.
         $due = $this->db->table('corkboard_cards')->whereIn('board_id', $ids)->whereNull('archived_at')->whereNull('completed_at')
             ->whereNotNull('due_at')->where('due_at', '<=', Carbon::now()->addDays(7))
-            ->groupBy('board_id')->selectRaw('board_id, count(*) as n')->pluck('n', 'board_id');
+            ->groupBy('board_id')->select('board_id')->selectRaw('count(*) as n')->pluck('n', 'board_id');
 
         $people = [];
         foreach ($boards as $board) {

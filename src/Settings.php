@@ -38,12 +38,6 @@ class Settings
         return max(0, (int) $this->settings->get('ernestdefoe-corkboard.min_posts'));
     }
 
-    /** Teams up to this size get live updates on private boards (one push per person). */
-    public function maxFanout(): int
-    {
-        return 50;
-    }
-
     /** From now on discussions carry the board chip (until then it costs no query). */
     public function markLinked(): void
     {

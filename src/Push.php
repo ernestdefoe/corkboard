@@ -18,12 +18,20 @@ use Psr\Log\LoggerInterface;
  * API, so the visibility rule is the API's and a misrouted push can't leak anything.
  *
  * Until flarum/framework#5220 lets extensions authorise their own private channels, each push
- * goes to every team member's own `private-user=<id>` channel: for teams up to Settings::maxFanout
+ * goes to every team member's own `private-user=<id>` channel: for teams up to MAX_FANOUT
  * people (groups counted by their members). Bigger teams, and everyone not on the team, poll.
  * Sent from the queue (Job\SendPush) after the change commits, so nobody waits on the realtime daemon.
  */
 class Push
 {
+    /**
+     * Teams up to this many people (groups counted by their members) get live updates, one push
+     * per person. Fixed, not a setting: past it, one event per member costs the realtime daemon
+     * more than the 20-second poll costs everyone, and flarum/framework#5220's board channel
+     * would remove the limit altogether.
+     */
+    public const MAX_FANOUT = 50;
+
     /** @var array<int, array{int, int, int|null, int|null}> board id => [board, version, actor, card] */
     private array $pending = [];
 
@@ -32,7 +40,6 @@ class Push
     public function __construct(
         private readonly Container $container,
         private readonly ConnectionInterface $db,
-        private readonly Settings $settings,
         private readonly LoggerInterface $logger,
         private readonly Queue $queue,
         private readonly Extensions $extensions,
@@ -101,7 +108,7 @@ class Push
     /** @return list<int> */
     public function recipients(int $boardId): array
     {
-        $max = $this->settings->maxFanout();
+        $max = self::MAX_FANOUT;
         $board = $this->db->table('corkboard_boards')->where('id', $boardId)->first(['owner_id', 'visibility']);
         if (! $board) {
             return [];

@@ -5,10 +5,7 @@ namespace ErnestDefoe\Corkboard;
 use Carbon\Carbon;
 use Flarum\Database\AbstractModel;
 use Flarum\Database\ScopeVisibilityTrait;
-use Flarum\User\User;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * A board: columns of cards, a team, and who may see it (Scope\BoardVisibility).
@@ -32,7 +29,6 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property Carbon|null $last_activity_at
  * @property Carbon|null $deleted_at
  * @property Carbon|null $created_at
- * @property User|null $owner
  */
 class Board extends AbstractModel
 {
@@ -62,30 +58,6 @@ class Board extends AbstractModel
     protected static function booted(): void
     {
         static::addGlobalScope('notDeleted', fn (Builder $q) => $q->whereNull('corkboard_boards.deleted_at'));
-    }
-
-    /** @return BelongsTo<User, $this> */
-    public function owner(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'owner_id');
-    }
-
-    /** @return HasMany<Column, $this> */
-    public function columns(): HasMany
-    {
-        return $this->hasMany(Column::class, 'board_id')->orderBy('position')->orderBy('id');
-    }
-
-    /** @return HasMany<Label, $this> */
-    public function labels(): HasMany
-    {
-        return $this->hasMany(Label::class, 'board_id')->orderBy('position')->orderBy('id');
-    }
-
-    /** @return HasMany<Member, $this> */
-    public function members(): HasMany
-    {
-        return $this->hasMany(Member::class, 'board_id');
     }
 
     /** Completed and archived boards are read-only until a manager reopens them. */

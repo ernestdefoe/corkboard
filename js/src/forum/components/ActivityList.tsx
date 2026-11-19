@@ -2,7 +2,7 @@ import Component from 'flarum/common/Component';
 import Button from 'flarum/common/components/Button';
 import LoadingIndicator from 'flarum/common/components/LoadingIndicator';
 import type Mithril from 'mithril';
-import { ago, Avatar, call, groupName, t, tx, type Group, type Person } from '../util';
+import { activityPage, ago, Avatar, groupName, t, tx, type Group, type Person } from '../util';
 import type { BoardState } from './BoardState';
 
 interface Page {
@@ -32,8 +32,8 @@ export default class ActivityList extends Component<{ state: BoardState; cardId?
   load(before?: number): void {
     this.loading = true;
     const of = this.attrs.cardId ? { card: this.attrs.cardId } : { board: this.attrs.state.id };
-    call<Page>('GET', '/activity', undefined, { ...of, ...(before ? { before } : {}) }, true)
-      .then((page) => {
+    activityPage(of, before)
+      .then((page: Page) => {
         this.items = before ? [...this.items, ...page.items] : page.items;
         Object.assign(this.users, page.users);
         Object.assign(this.groups, page.groups);

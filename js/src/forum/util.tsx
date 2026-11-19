@@ -123,6 +123,55 @@ export function cardList(
   });
 }
 
+/**
+ * People (and, for a team, groups) whose name starts with q: people through core's own users
+ * endpoint (which needs the searchUsers permission, as finding people anywhere does), groups from
+ * the forum's own list. Guests and hidden groups are never offered.
+ */
+export function findPeople(q: string, withGroups = false): Promise<{ users: Person[]; groups: Group[] }> {
+  const groups: Group[] = [];
+  if (withGroups) {
+    const start = q.toLowerCase();
+    app.store
+      .all<any>('groups')
+      .filter(
+        (g) => g.id() !== '2' && !g.isHidden() && [g.nameSingular(), g.namePlural()].some((n: string) => (n || '').toLowerCase().startsWith(start))
+      )
+      .slice(0, 5)
+      .forEach((g) => groups.push({ id: Number(g.id()), name: g.namePlural(), color: g.color() || null, icon: g.icon() || null, count: null }));
+  }
+  return app
+    .request<any>({
+      method: 'GET',
+      url: `${app.forum.attribute('apiUrl')}/users`,
+      params: { filter: { q }, page: { limit: 8 }, sort: 'username' },
+      errorHandler: onError(true),
+    } as any)
+    .then((doc) => ({
+      users: doc.data.map((d: any) => ({
+        id: Number(d.id),
+        name: d.attributes.displayName,
+        username: d.attributes.username,
+        slug: d.attributes.slug,
+        avatarUrl: d.attributes.avatarUrl ?? null,
+      })),
+      groups,
+    }));
+}
+
+/** A page of a board's (or one card's) history, newest first, with today's names for its ids. */
+export function activityPage(of: { board?: number; card?: number }, before?: number): Promise<any> {
+  const filter = { ...of, ...(before ? { before } : {}) };
+  return app
+    .request<any>({
+      method: 'GET',
+      url: `${app.forum.attribute('apiUrl')}/corkboard-activity`,
+      params: { filter },
+      errorHandler: onError(true),
+    } as any)
+    .then((doc) => ({ items: doc.data.map(item), more: !!doc.links?.next, ...doc.meta.names }));
+}
+
 export interface Template {
   key: string;
   title: string;

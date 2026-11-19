@@ -37,55 +37,56 @@ export interface EditorWidget {
 }
 
 /**
- * Offer the widgets to FoF's layout editor, which lists only widgets
- * registered on the admin side too. Registered as the editor opens; a widget
- * no saved layout places goes in the editor's list of available widgets, not
- * into a section — FoF would otherwise draw it placed, while the forum rightly
- * shows nothing until it is saved.
+ * Offer the widgets to FoF's layout editor, which lists only widgets registered on the admin side
+ * too, through FoF's own Widgets extender. They are registered as the editor opens (patchEditor).
  */
 export function registerEditorWidgets(app: any, extension: string, widgets: EditorWidget[]): void {
   const Widgets = fof('common/extend/Widgets');
-  const WidgetEditor = fof('admin/components/WidgetEditor');
-  if (!Widgets || !WidgetEditor) return;
+  if (!Widgets) return;
 
-  extend(WidgetEditor.prototype, 'oninit', function (this: any) {
+  patchEditor(extension, widgets, () => {
     const manager = app.widgets;
-    if (!manager) return;
-
-    if (!manager.widgets.some((w: any) => w.extension === extension)) {
-      const add = new Widgets();
-      widgets.forEach((w, position) =>
-        add.add({
-          key: w.key,
-          component: { component: () => null },
-          title: w.title,
-          icon: w.icon,
-          isDisabled: false,
-          isUnique: true,
-          placement: w.placement || 'end',
-          position,
-        })
-      );
-      add.extend(app, extension);
-    }
-
-    listUnplacedAsAvailable(this, extension, widgets);
+    if (!manager || manager.widgets.some((w: any) => w.extension === extension)) return;
+    const add = new Widgets();
+    widgets.forEach((w, position) =>
+      add.add({
+        key: w.key,
+        component: { component: () => null },
+        title: w.title,
+        icon: w.icon,
+        isDisabled: false,
+        isUnique: true,
+        placement: w.placement || 'end',
+        position,
+      })
+    );
+    add.extend(app, extension);
   });
 }
 
 /**
- * 🚨 The one place Corkboard touches FoF Widgets' internals: the editor's own `config`
- * (`{ instances, disabled }`, read as the editor opens), which isn't a documented API and may
- * change in any FoF release. A widget no saved layout places is added to `config.disabled`, so
- * the editor lists it as available instead of drawing it in a section. If the shape changes
- * this does nothing (the widgets still register; they just show placed in the editor until
- * saved). To go once FoF Widgets has its own opt-in / default-disabled option.
+ * 🚨 The one place Corkboard touches FoF Widgets' internals: its editor component's `oninit` and
+ * the editor's own `config` (`{ instances, disabled }`), neither a documented API, so either may
+ * change in any FoF release. As the editor opens, the widgets are registered ($register) and any
+ * no saved layout places is added to `config.disabled`, so the editor lists it as available
+ * instead of drawing it in a section (FoF would draw it placed, while the forum rightly shows
+ * nothing until it is saved). If the shape changes this only stops doing that: the widgets still
+ * register and show placed in the editor until saved.
+ *
+ * An opt-in ("disabled until placed") option in fof/forum-widgets-core would replace this whole
+ * function: then register the widgets with it and delete this.
  */
-function listUnplacedAsAvailable(editor: any, extension: string, widgets: EditorWidget[]): void {
-  const config = editor.config;
-  if (!config || typeof config !== 'object') return;
-  const disabled: string[] = Array.isArray(config.disabled) ? config.disabled : [];
-  const instances: any[] = Array.isArray(config.instances) ? config.instances : [];
-  const unplaced = widgets.map((w) => `${extension}:${w.key}`).filter((id) => !disabled.includes(id) && !instances.some((i: any) => i?.id === id));
-  config.disabled = [...disabled, ...unplaced];
+function patchEditor(extension: string, widgets: EditorWidget[], register: () => void): void {
+  const WidgetEditor = fof('admin/components/WidgetEditor');
+  if (!WidgetEditor) return;
+
+  extend(WidgetEditor.prototype, 'oninit', function (this: any) {
+    register();
+    const config = this.config;
+    if (!config || typeof config !== 'object') return;
+    const disabled: string[] = Array.isArray(config.disabled) ? config.disabled : [];
+    const instances: any[] = Array.isArray(config.instances) ? config.instances : [];
+    const unplaced = widgets.map((w) => `${extension}:${w.key}`).filter((id) => !disabled.includes(id) && !instances.some((i: any) => i?.id === id));
+    config.disabled = [...disabled, ...unplaced];
+  });
 }

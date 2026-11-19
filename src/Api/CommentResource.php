@@ -70,9 +70,9 @@ class CommentResource extends Resource
                 $query->orderByDesc('corkboard_comments.id');
             }),
             Endpoint\Show::make(),
-            Endpoint\Create::make()->authenticated(),
-            Endpoint\Update::make()->authenticated(),
-            Endpoint\Delete::make()->authenticated(),
+            self::createOn('cardId', 'comment'),
+            Endpoint\Update::make()->authenticated()->can('update'),
+            Endpoint\Delete::make()->authenticated()->can('delete'),
         ];
     }
 

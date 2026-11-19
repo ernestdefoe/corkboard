@@ -5,11 +5,7 @@ namespace ErnestDefoe\Corkboard;
 use Carbon\Carbon;
 use Flarum\Database\AbstractModel;
 use Flarum\Database\ScopeVisibilityTrait;
-use Flarum\Discussion\Discussion;
-use Flarum\User\User;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * A card. Visible to whoever may see its board (Scope\CardVisibility).
@@ -36,9 +32,6 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int $checklist_done
  * @property Carbon|null $created_at
  * @property Board $board
- * @property Column $column
- * @property User|null $user
- * @property Discussion|null $discussion
  */
 class Card extends AbstractModel
 {
@@ -82,42 +75,6 @@ class Card extends AbstractModel
     {
         // Even a deleted board (the foreign key guarantees one exists): callers check deleted_at.
         return $this->belongsTo(Board::class, 'board_id')->withoutGlobalScope('notDeleted');
-    }
-
-    /** @return BelongsTo<Column, $this> */
-    public function column(): BelongsTo
-    {
-        return $this->belongsTo(Column::class, 'column_id');
-    }
-
-    /** @return BelongsTo<User, $this> */
-    public function user(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'user_id');
-    }
-
-    /** @return BelongsTo<Discussion, $this> */
-    public function discussion(): BelongsTo
-    {
-        return $this->belongsTo(Discussion::class, 'discussion_id');
-    }
-
-    /** @return BelongsToMany<User, $this> */
-    public function assignees(): BelongsToMany
-    {
-        return $this->belongsToMany(User::class, 'corkboard_assignees', 'card_id', 'user_id');
-    }
-
-    /** @return BelongsToMany<Label, $this> */
-    public function labels(): BelongsToMany
-    {
-        return $this->belongsToMany(Label::class, 'corkboard_card_label', 'card_id', 'label_id');
-    }
-
-    /** @return HasMany<ChecklistItem, $this> */
-    public function checklist(): HasMany
-    {
-        return $this->hasMany(ChecklistItem::class, 'card_id')->orderBy('position')->orderBy('id');
     }
 
     public function isDone(): bool

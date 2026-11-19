@@ -50,15 +50,20 @@ class Team
             throw Refusal::because('team_full', 'userId');
         }
 
-        $member = Member::query()->where('board_id', $board->id)
-            ->where($userId ? 'user_id' : 'group_id', $userId ?: $groupId)->first() ?? new Member();
-        $isNew = ! $member->exists;
-        $member->board_id = $board->id;
-        $member->user_id = $userId;
-        $member->group_id = $userId ? null : $groupId;
-        $member->role = $role;
-        $member->created_at ??= Carbon::now();
-        $member->save();
+        // One row per person or group (unique keys): adding again sets the role, and two adds at once
+        // (a double click) still make one row.
+        $key = $userId ? 'user_id' : 'group_id';
+        $find = fn () => Member::query()->where('board_id', $board->id)->where($key, $userId ?: $groupId)->first();
+        $isNew = $find() === null;
+        $this->db->table('corkboard_members')->upsert(
+            [['board_id' => $board->id, 'user_id' => $userId, 'group_id' => $userId ? null : $groupId, 'role' => $role, 'created_at' => Carbon::now()]],
+            ['board_id', $key],
+            ['role'],
+        );
+        /** @var Member $member */
+        $member = $find();
+        // The actor's own role may have changed: the board this answers with must say so.
+        $this->access->forget($board, $actor);
 
         $ref = $this->log->record($board, null, $actor, $isNew ? 'member_added' : 'member_role', array_filter(['u' => $userId, 'g' => $member->group_id, 'r' => $role]));
         if ($userId) {
@@ -73,6 +78,7 @@ class Team
         $this->access->assert($board, $actor, 'manager');
         $member->role = $this->role($role);
         $member->save();
+        $this->access->forget($board, $actor);
         $ref = $this->log->record($board, null, $actor, 'member_role', array_filter(['u' => $member->user_id, 'g' => $member->group_id, 'r' => $member->role]));
         if ($member->user_id) {
             $this->notify->send(Notification\TeamAddedBlueprint::class, $board, $actor, [$member->user_id], $ref);
@@ -88,6 +94,7 @@ class Team
             $this->access->assert($board, $actor, 'manager');
         }
         $member->delete();
+        $this->access->forget($board, $actor);
         $this->log->record($board, null, $actor, 'member_removed', array_filter(['u' => $member->user_id, 'g' => $member->group_id]));
     }
 

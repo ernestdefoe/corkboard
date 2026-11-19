@@ -73,9 +73,14 @@ class CardResource extends Resource
         return [
             self::list(50, fn (Builder $query, array $filters, Context $context) => $this->list->filter($query, $context->getActor(), $filters), Presenter::SLICE),
             Endpoint\Show::make(),
-            Endpoint\Create::make()->authenticated(),
-            Endpoint\Update::make()->authenticated(),
-            Endpoint\Delete::make()->authenticated(),
+            self::createOn('boardId', 'addCards'),
+            // Following a card only needs to see it; any other change needs an editor (CardPolicy).
+            Endpoint\Update::make()->authenticated()->can(fn (Card $card, Context $context) => match (array_keys(self::input($context))) {
+                [] => null,
+                ['watching'] => 'watch',
+                default => 'update',
+            }),
+            Endpoint\Delete::make()->authenticated()->can('delete'),
         ];
     }
 

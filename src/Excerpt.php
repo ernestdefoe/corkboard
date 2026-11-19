@@ -9,11 +9,12 @@ use DOMNode;
 /**
  * Plain text for an excerpt, by ALLOW-LIST.
  *
- * Built from the post's contentHtml exactly as the API gave it to this viewer
- * (other extensions' redactions already applied), and only the words of the
- * elements below survive: spoilers, code, quotes, embeds, details, hidden
- * content and anything an extension invents later are dropped whole, text and
- * all. Unknown means hidden.
+ * Its one caller, Presenter::discussion, hands it a reply's contentHtml as core's
+ * posts endpoint answered it for the viewer (through the internal API client, so
+ * other extensions' changes to that answer are already in it). Only the words of
+ * the elements in KEEP survive, minus any marked hidden or as a spoiler: code,
+ * quotes, embeds, details, images other than emoji, and any element an extension
+ * invents later are dropped whole, text and all. Unknown means hidden.
  */
 final class Excerpt
 {

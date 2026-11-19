@@ -5,9 +5,10 @@ namespace ErnestDefoe\Corkboard\Gdpr;
 use Flarum\Gdpr\Data\Type;
 
 /**
- * A member's cards, comments and boards in their data export. Erasing them keeps their comments
- * (as "Deleted user") so a team's history still reads, and takes them off every card and team;
- * the boards they own pass to nobody (moderators can give them a new owner).
+ * A member's cards, comments and boards in their data export. Erasing them takes them off every
+ * card and team; the boards and cards they made stay (the team's work), passed to nobody
+ * (moderators can give a board a new owner). Their comments follow flarum/gdpr's own posts:
+ * anonymizing keeps them, shown as by a deleted user; deleting removes them.
  */
 class CorkboardData extends Type
 {
@@ -23,7 +24,7 @@ class CorkboardData extends Type
 
     public static function deleteDescription(): string
     {
-        return self::anonymizeDescription();
+        return self::staticTranslator()->trans('ernestdefoe-corkboard.lib.gdpr.delete');
     }
 
     public function export(): ?array
@@ -55,8 +56,18 @@ class CorkboardData extends Type
         $db->table('corkboard_checklist')->where('user_id', $id)->update(['user_id' => null]);
     }
 
+    /** As anonymize(), and their comments go: each card's comment count is recounted in one update. */
     public function delete(): void
     {
+        $db = $this->user->getConnection();
+        $cards = $db->table('corkboard_comments')->where('user_id', $this->user->id)->distinct()->pluck('card_id')->all();
+        $db->table('corkboard_comments')->where('user_id', $this->user->id)->delete();
+        if ($cards) {
+            // count(*) as a correlated subquery (as Counters::boards): portable on every driver.
+            $db->table('corkboard_cards')->whereIn('id', $cards)->update([
+                'comment_count' => $db->table('corkboard_comments')->selectRaw('count(*)')->whereColumn('corkboard_comments.card_id', 'corkboard_cards.id'),
+            ]);
+        }
         $this->anonymize();
     }
 }

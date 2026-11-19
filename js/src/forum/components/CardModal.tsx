@@ -4,7 +4,7 @@ import Button from 'flarum/common/components/Button';
 import LoadingIndicator from 'flarum/common/components/LoadingIndicator';
 import classList from 'flarum/common/utils/classList';
 import type Mithril from 'mithril';
-import { call, read, t, tx, write, type Person } from '../util';
+import { call, findPeople, read, t, tx, write, type Person } from '../util';
 import type { BoardState } from './BoardState';
 import ActivityList from './ActivityList';
 import type { Detail } from './card/types';
@@ -300,7 +300,7 @@ export default class CardModal extends Modal<CardModalAttrs> {
     clearTimeout(this.searchTimer);
     if (!this.peopleQuery) return;
     this.searchTimer = window.setTimeout(() => {
-      call<{ users: Person[] }>('GET', '/people', undefined, { q: this.peopleQuery }, true).then((a) => {
+      findPeople(this.peopleQuery).then((a) => {
         this.people = a.users;
         m.redraw();
       });

@@ -32,6 +32,7 @@ ernestdefoe-corkboard:
       title: Give the board a name of up to 160 characters.
       card_title: Give the card a title of up to 160 characters.
       due: Pick a date for the due date.
+      due_shift: Shift due dates by whole days, at most 3650 either way.
       column_title: Give the column a name of up to 80 characters.
       visibility: That visibility isn't offered on this forum.
       public: Only moderators can make a board public.
@@ -57,6 +58,7 @@ ernestdefoe-corkboard:
     gdpr:
       export: Boards you own, cards you made or were given, and your card comments.
       anonymize: Your card comments stay, shown as by a deleted user; you're taken off every card and team.
+      delete: Your card comments are deleted; you're taken off every card and team.
     widget:
       mine_title: My cards
       due_title: Due soon

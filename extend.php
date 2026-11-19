@@ -48,8 +48,9 @@ return [
         ->namespace('ernestdefoe-corkboard', __DIR__.'/views'),
 
     // Boards, columns, labels, cards, comments, checklist items and team rows are JSON:API
-    // resources (/api/corkboard-boards, …): every list and read goes through the one visibility
-    // rule, every write through the services (src/Api/*Resource.php).
+    // resources (/api/corkboard-boards, …), and a board's history a read-only one: every list and
+    // read goes through the one visibility rule, every write through the services
+    // (src/Api/*Resource.php). People are found through core's own users endpoint.
     new Extend\ApiResource(Api\BoardResource::class),
     new Extend\ApiResource(Api\ColumnResource::class),
     new Extend\ApiResource(Api\LabelResource::class),
@@ -57,6 +58,18 @@ return [
     new Extend\ApiResource(Api\CommentResource::class),
     new Extend\ApiResource(Api\ChecklistItemResource::class),
     new Extend\ApiResource(Api\MemberResource::class),
+    new Extend\ApiResource(Api\ActivityResource::class),
+
+    // Who may write: each endpoint asks the model's policy (`->can('update')`, …), which reads the
+    // board's roles (Access); the services check again, with the field-level refusals on top.
+    (new Extend\Policy())
+        ->modelPolicy(Board::class, \ErnestDefoe\Corkboard\Policy\BoardPolicy::class)
+        ->modelPolicy(Card::class, \ErnestDefoe\Corkboard\Policy\CardPolicy::class)
+        ->modelPolicy(\ErnestDefoe\Corkboard\Column::class, \ErnestDefoe\Corkboard\Policy\BoardPartPolicy::class)
+        ->modelPolicy(\ErnestDefoe\Corkboard\Label::class, \ErnestDefoe\Corkboard\Policy\BoardPartPolicy::class)
+        ->modelPolicy(\ErnestDefoe\Corkboard\Member::class, \ErnestDefoe\Corkboard\Policy\BoardPartPolicy::class)
+        ->modelPolicy(\ErnestDefoe\Corkboard\Comment::class, \ErnestDefoe\Corkboard\Policy\CommentPolicy::class)
+        ->modelPolicy(\ErnestDefoe\Corkboard\ChecklistItem::class, \ErnestDefoe\Corkboard\Policy\ChecklistItemPolicy::class),
 
     // What isn't a create, read, update or delete: one handler each (src/Api/Handler). The card
     // lists (my cards, due soon, a column's next cards) are filters on corkboard-cards, template
@@ -66,8 +79,6 @@ return [
         ->get("/corkboard/boards/$board/version", 'corkboard.boards.version', Api\Handler\BoardVersion::class)
         ->post("/corkboard/boards/$board/pin", 'corkboard.boards.pin', Api\Handler\PinBoard::class)
         ->post("/corkboard/boards/$board/moving", 'corkboard.boards.moving', Api\Handler\Moving::class)
-        ->get('/corkboard/people', 'corkboard.people', Api\Handler\SearchPeople::class)
-        ->get('/corkboard/activity', 'corkboard.activity', Api\Handler\Activity::class)
 
         ->post('/corkboard/cards/{id:\d+}/clone', 'corkboard.cards.clone', Api\Handler\CloneCard::class)
         ->post('/corkboard/cards/{id:\d+}/discussion', 'corkboard.cards.discussion', Api\Handler\StartDiscussion::class)

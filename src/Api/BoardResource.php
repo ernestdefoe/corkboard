@@ -76,9 +76,10 @@ class BoardResource extends Resource
                     )),
                 ]),
             Endpoint\Show::make(),
-            Endpoint\Create::make()->authenticated(),
-            Endpoint\Update::make()->authenticated(),
-            Endpoint\Delete::make()->authenticated(),
+            Endpoint\Create::make()->authenticated()->can('corkboard.create'),
+            // A write that changes nothing needs no role (BoardPolicy::update otherwise).
+            Endpoint\Update::make()->authenticated()->can(fn (Board $board, Context $context) => self::input($context) ? 'update' : null),
+            Endpoint\Delete::make()->authenticated()->can('delete'),
         ];
     }
 

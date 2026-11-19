@@ -67,6 +67,24 @@ abstract class Resource extends AbstractDatabaseResource
         };
     }
 
+    /**
+     * A create on a board or a card, guarded as core guards a reply (PostResource): the parent the
+     * body names ($field: boardId or cardId) must be one the actor can see (404 if not) and allow
+     * $ability (403; BoardPolicy, CardPolicy). Without an id the create's validation answers (422).
+     */
+    protected static function createOn(string $field, string $ability): Endpoint\Create
+    {
+        return Endpoint\Create::make()->authenticated()->visible(function (Context $context) use ($field, $ability): bool {
+            $id = self::input($context)[$field] ?? null;
+            if (is_numeric($id)) {
+                $actor = $context->getActor();
+                $actor->assertCan($ability, $field === 'cardId' ? Find::card($actor, (int) $id) : Find::board($actor, (int) $id));
+            }
+
+            return true;
+        });
+    }
+
     /** What a write (and, for boards and cards, a read of one) answers with. */
     protected static function view(Closure $get, bool $onShow = false): Schema\Arr
     {

@@ -12,6 +12,9 @@ use Illuminate\Support\Str;
 /** Starting, changing, cloning, completing and deleting boards. */
 class Boards
 {
+    /** How far a board copy may shift its cards' due dates, in days either way. */
+    public const MAX_SHIFT_DAYS = 3650;
+
     public function __construct(
         private readonly ConnectionInterface $db,
         private readonly Access $access,
@@ -151,8 +154,9 @@ class Boards
         $board->owner_id = $user->id;
         // The old owner stays on as a manager; the new one needs no team row.
         $this->db->table('corkboard_members')->where('board_id', $board->id)->where('user_id', $user->id)->delete();
-        if ($old && ! $this->db->table('corkboard_members')->where('board_id', $board->id)->where('user_id', $old)->exists()) {
-            $this->db->table('corkboard_members')->insert(['board_id' => $board->id, 'user_id' => $old, 'role' => 'manager', 'created_at' => Carbon::now()]);
+        if ($old) {
+            // Unless they're on the team already (one row per person: a unique key).
+            $this->db->table('corkboard_members')->insertOrIgnore(['board_id' => $board->id, 'user_id' => $old, 'role' => 'manager', 'created_at' => Carbon::now()]);
         }
     }
 
@@ -215,8 +219,13 @@ class Boards
         if ($why = $this->access->createRefusal($actor, $this->settings)) {
             throw $why === 'posts' ? Refusal::because('min_posts') : new PermissionDeniedException();
         }
+        $due = $in['due'] ?? 'clear';
+        // Whole days, ten years either way: further would leave a year a DATETIME can't hold.
+        if ($due !== 'clear' && (! is_numeric($due) || (int) $due != $due || abs((int) $due) > self::MAX_SHIFT_DAYS)) {
+            throw Refusal::because('due_shift', 'due');
+        }
 
-        return $this->db->transaction(function () use ($source, $actor, $in) {
+        return $this->db->transaction(function () use ($source, $actor, $in, $due) {
             $board = new Board();
             $board->owner_id = $actor->id;
             $board->status = 'active';
@@ -230,7 +239,7 @@ class Boards
             ], true);
             $board->tag_id = $source->tag_id;
             $board->save();
-            $this->copy($source, $board, ['cards' => (bool) ($in['cards'] ?? true), 'due' => $in['due'] ?? 'clear']);
+            $this->copy($source, $board, ['cards' => (bool) ($in['cards'] ?? true), 'due' => $due]);
             $this->log->record($board, null, $actor, 'board_cloned', ['from' => $source->id]);
 
             return $board;
