@@ -21,6 +21,7 @@ class Notify
     public function __construct(
         private readonly NotificationSyncer $syncer,
         private readonly ConnectionInterface $db,
+        private readonly Access $access,
     ) {
     }
 
@@ -42,9 +43,7 @@ class Notify
             return;
         }
 
-        $recipients = User::query()->whereIn('id', array_keys($ids))->get()
-            ->filter(fn (User $u) => Board::whereVisibleTo($u)->whereKey($board->id)->exists())
-            ->values()->all();
+        $recipients = $this->access->audience($board, User::query()->whereIn('id', array_keys($ids))->with('groups')->get())->all();
         if (! $recipients) {
             return;
         }
@@ -90,9 +89,14 @@ class Notify
         return $this->db->table('corkboard_watchers')->where('card_id', $card->id)->where('watching', true)->pluck('user_id')->map(fn ($id) => (int) $id)->all();
     }
 
-    /** Watch a card, unless they switched watching it off before. */
-    public function watch(Card $card, int $userId): void
+    /**
+     * Watch a card, unless they switched watching it off before.
+     *
+     * @param int|list<int> $userIds
+     */
+    public function watch(Card $card, int|array $userIds): void
     {
-        $this->db->table('corkboard_watchers')->insertOrIgnore(['card_id' => $card->id, 'user_id' => $userId, 'watching' => true]);
+        $rows = array_map(fn (int $id) => ['card_id' => $card->id, 'user_id' => $id, 'watching' => true], (array) $userIds);
+        $rows && $this->db->table('corkboard_watchers')->insertOrIgnore($rows);
     }
 }

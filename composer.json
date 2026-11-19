@@ -38,10 +38,10 @@
         "flarum/mentions": "@mention people in card descriptions and comments",
         "flarum/realtime": "Boards update the moment someone moves a card",
         "ernestdefoe/projects": "A board for a project, with its progress on the project page",
-        "ernestdefoe/renown": "XP for the people who finish a card",
         "ernestdefoe/page-builder": "My cards, Due soon and Board progress as Page Builder blocks",
         "fof/forum-widgets-core": "My cards and Due soon in FoF's widget sections",
-        "flarum/gdpr": "Cards and comments in a member's data export and erasure"
+        "flarum/gdpr": "Cards and comments in a member's data export and erasure",
+        "flarum/nicknames": "Find people by nickname when adding them to a team or a card"
     },
     "autoload": {
         "psr-4": {
@@ -66,8 +66,11 @@
                 "flarum/tags",
                 "flarum/gdpr",
                 "flarum/mentions",
+                "flarum/nicknames",
                 "flarum/realtime",
-                "ernestdefoe/projects"
+                "ernestdefoe/projects",
+                "ernestdefoe/page-builder",
+                "fof/forum-widgets-core"
             ]
         }
     },

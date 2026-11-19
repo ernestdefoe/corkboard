@@ -11,7 +11,15 @@ parameters:
     paths:
         - extend.php
         - src
-    # Page Builder's interface is only there when Page Builder is installed
-    # (extend.php checks first).
+    # Page Builder's classes are only there when Page Builder is installed
+    # (extend.php loads them inside Extend\Conditional).
     excludePaths:
         - src/Widget
+    ignoreErrors:
+        -
+            message: '#Ernestdefoe\\PageBuilder\\Extend\\PageBuilderBlock#'
+            path: extend.php
+        # Same for ernestdefoe/projects (Projects only reaches it once its Integration is on).
+        -
+            message: '#ErnestDefoe\\Projects\\#'
+            path: src/Projects.php

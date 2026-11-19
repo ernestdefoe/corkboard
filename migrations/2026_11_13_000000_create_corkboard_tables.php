@@ -8,7 +8,7 @@ use Illuminate\Database\Schema\Builder;
  * one database would collide. Generated names carry the prefix.
  *
  * Counters are unsigned: a decrement below zero is an out-of-range error on MySQL, never a
- * negative, so every decrement goes through Counters::down().
+ * negative, so counts are recounted from the rows (Counters), never decremented.
  */
 return [
     'up' => function (Builder $schema) {

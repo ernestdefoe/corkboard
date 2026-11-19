@@ -146,7 +146,9 @@ export default class ColumnModal extends FormModal<ColumnModalAttrs> {
         this.attrs.board.replace(answer);
         this.hide();
       })
-      .catch(() => {})
+      .catch(() => {
+        /* call() already showed the error */
+      })
       .finally(() => {
         this.loading = false;
         m.redraw();

@@ -16,22 +16,26 @@ use WeakMap;
 class DiscussionCards
 {
     /**
-     * Per request (a new instance is resolved for every discussion, so the batch is static).
+     * One batch per request object (one instance: CorkboardServiceProvider), gone with the request.
      *
-     * @var WeakMap<object, array{ids: array<int, true>, rows: array<int, list<array<string, mixed>>>|null}>|null
+     * @var WeakMap<object, array{ids: array<int, true>, rows: array<int, list<array<string, mixed>>>|null}>
      */
-    private static ?WeakMap $batches = null;
+    private WeakMap $batches;
+
+    public function __construct()
+    {
+        $this->batches = new WeakMap();
+    }
 
     public function __invoke(Discussion $discussion, Context $context): \Closure
     {
         $request = $context->request;
-        self::$batches ??= new WeakMap();
-        $batch = self::$batches[$request] ?? ['ids' => [], 'rows' => null];
+        $batch = $this->batches[$request] ?? ['ids' => [], 'rows' => null];
         $batch['ids'][$discussion->id] = true;
-        self::$batches[$request] = $batch;
+        $this->batches[$request] = $batch;
 
         return function () use ($discussion, $context, $request) {
-            $batch = self::$batches[$request];
+            $batch = $this->batches[$request];
             if ($batch['rows'] === null) {
                 $batch['rows'] = [];
                 $rows = Card::whereVisibleTo($context->getActor())
@@ -53,7 +57,7 @@ class DiscussionCards
                         'color' => $row->getAttribute('board_color'),
                     ];
                 }
-                self::$batches[$request] = $batch;
+                $this->batches[$request] = $batch;
             }
 
             return $batch['rows'][$discussion->id] ?? [];

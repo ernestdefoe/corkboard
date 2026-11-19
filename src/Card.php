@@ -48,7 +48,17 @@ class Card extends AbstractModel
 
     protected $table = 'corkboard_cards';
 
-    protected $guarded = [];
+    /**
+     * A card is always shown with its board's name, and core's notification list loads card
+     * subjects in one query per page: their boards come with them instead of one query per card.
+     */
+    protected $with = ['board'];
+
+    /** Only cloning a card or a board creates cards from an array (Cards::clone, Boards::copy), with these. */
+    protected $fillable = [
+        'board_id', 'column_id', 'position', 'title', 'description', 'priority', 'due_at', 'due_all_day',
+        'user_id', 'cover_color', 'checklist_total', 'completed_at',
+    ];
 
     protected $casts = [
         'position' => 'integer',

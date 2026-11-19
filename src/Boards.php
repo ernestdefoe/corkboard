@@ -20,6 +20,8 @@ class Boards
         private readonly Notify $notify,
         private readonly Counters $counters,
         private readonly TranslatorInterface $translator,
+        private readonly Extensions $extensions,
+        private readonly Projects $projects,
     ) {
     }
 
@@ -33,7 +35,7 @@ class Boards
         $template = (string) ($in['template'] ?? 'simple');
         $source = null;
         if (ctype_digit($template)) {
-            $source = Board::query()->where('is_template', true)->find((int) $template);
+            $source = Board::whereVisibleTo($actor)->where('is_template', true)->find((int) $template);
             if (! $source || ! $actor->hasPermission('corkboard.useTemplates')) {
                 throw Refusal::because('template');
             }
@@ -171,14 +173,14 @@ class Boards
         }
         if (array_key_exists('tagId', $in)) {
             $id = $in['tagId'] === null || $in['tagId'] === '' ? null : (int) $in['tagId'];
-            if ($id !== null && (! resolve(Extensions::class)->tags() || ! \Flarum\Tags\Tag::whereVisibleTo($actor)->whereKey($id)->exists())) {
+            if ($id !== null && (! $this->extensions->tags() || ! \Flarum\Tags\Tag::whereVisibleTo($actor)->whereKey($id)->exists())) {
                 throw Refusal::because('tag', 'tagId');
             }
             $board->tag_id = $id;
         }
         if (array_key_exists('projectId', $in)) {
             $id = $in['projectId'] === null || $in['projectId'] === '' ? null : (int) $in['projectId'];
-            if ($id !== null && (! Projects::enabled() || (! Projects::isAuthor($this->db, $id, $actor) && ! $actor->hasPermission('corkboard.moderate')))) {
+            if ($id !== null && (! $this->projects->enabled() || (! $this->projects->isAuthor($id, $actor) && ! $actor->hasPermission('corkboard.moderate')))) {
                 throw Refusal::because('project', 'projectId');
             }
             $board->project_id = $id;

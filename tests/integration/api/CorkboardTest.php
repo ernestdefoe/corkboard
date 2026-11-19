@@ -267,6 +267,68 @@ class CorkboardTest extends TestCase
     }
 
     #[Test]
+    public function card_notifications_cost_the_same_queries_for_one_or_six(): void
+    {
+        $notify = function (array $cardIds): int {
+            $db = $this->database();
+            $db->table('notifications')->delete();
+            foreach ($cardIds as $id) {
+                $db->table('notifications')->insert(['user_id' => 4, 'from_user_id' => 3, 'type' => 'corkboardAssigned', 'subject_id' => $id, 'data' => '{"a":'.$id.'}', 'created_at' => Carbon::now()]);
+            }
+            $this->send($this->request('GET', '/api/notifications', ['authenticatedAs' => 4]));
+            $db->flushQueryLog();
+            $db->enableQueryLog();
+            $response = $this->send($this->request('GET', '/api/notifications', ['authenticatedAs' => 4]));
+            $n = count($db->getQueryLog());
+            $db->disableQueryLog();
+            $this->assertSame(count($cardIds), count(json_decode((string) $response->getBody(), true)['data']));
+
+            return $n;
+        };
+
+        $now = Carbon::now();
+        foreach ([601, 602, 603, 604, 605] as $id) {
+            $this->database()->table('corkboard_cards')->insert(['id' => $id, 'board_id' => 2, 'column_id' => 21, 'position' => $id, 'title' => "Card $id", 'priority' => 'none', 'user_id' => 3, 'comment_count' => 0, 'checklist_total' => 0, 'checklist_done' => 0, 'due_all_day' => false, 'created_at' => $now, 'updated_at' => $now]);
+        }
+
+        $this->assertSame($notify([200]), $notify([200, 601, 602, 603, 604, 605]));
+    }
+
+    #[Test]
+    public function a_change_is_pushed_once_to_the_team_from_the_queue(): void
+    {
+        $this->app();
+        $fake = new class extends \Pusher\Pusher {
+            /** @var list<array{array<string>, string, mixed}> */
+            public array $sent = [];
+
+            public function __construct()
+            {
+            }
+
+            public function trigger($channels, string $event, $data, array $params = [], bool $already_encoded = false): object
+            {
+                $this->sent[] = [(array) $channels, $event, $data];
+
+                return new \stdClass();
+            }
+        };
+        $this->app()->getContainer()->instance(\Pusher\Pusher::class, $fake);
+
+        $this->call('PATCH', '/cards/200', 3, ['columnId' => 22, 'afterId' => null]);
+        $boards = array_values(array_filter($fake->sent, fn ($e) => $e[2]['t'] === 'board'));
+        $this->assertNotEmpty($boards);
+        [$channels, $event, $data] = end($boards);
+        $this->assertSame('corkboard', $event);
+        $this->assertSame(2, $data['b']);
+        $this->assertSame((int) $this->database()->table('corkboard_boards')->where('id', 2)->value('version'), $data['v'], 'the last event has the committed version');
+        sort($channels);
+        // Ana owns it, Marc is on it by name, Vol through Volunteers. Only ids travel, never a title.
+        $this->assertSame(['private-user=3', 'private-user=4', 'private-user=5'], $channels);
+        $this->assertArrayNotHasKey('title', $data);
+    }
+
+    #[Test]
     public function the_calendar_feed_lists_the_owners_due_cards(): void
     {
         $this->call('PATCH', '/cards/200', 3, ['assigneeIds' => [4], 'dueAt' => '2030-04-17T15:00:00Z']);
@@ -274,6 +336,11 @@ class CorkboardTest extends TestCase
         $this->assertNull($json['url'], 'a GET makes no link');
         [, $json] = $this->call('POST', '/feed-token', 4);
         $token = substr($json['url'], -40);
+        // Kept in Corkboard's own table, never in a column on users.
+        $this->assertFalse($this->database()->getSchemaBuilder()->hasColumn('users', 'corkboard_feed_token'));
+        $this->assertSame($token, $this->database()->table('corkboard_feed_tokens')->where('user_id', 4)->value('token'));
+        [, $json] = $this->call('GET', '/feed-token', 4);
+        $this->assertSame($token, substr($json['url'], -40), 'the link reads back');
         [$status, , $raw] = $this->call('GET', '/feed/'.$token, null);
         $this->assertSame(200, $status);
         $this->assertStringContainsString('SUMMARY:SECRET-CARD-2', $raw);
@@ -283,6 +350,57 @@ class CorkboardTest extends TestCase
         $this->call('POST', '/feed-token', 4);
         [$status] = $this->call('GET', '/feed/'.$token, null);
         $this->assertSame(404, $status);
+        $this->assertSame(1, $this->database()->table('corkboard_feed_tokens')->where('user_id', 4)->count());
+    }
+
+    #[Test]
+    public function an_upgrade_from_1_0_moves_feed_links_off_the_users_table(): void
+    {
+        $this->app();
+        $schema = $this->database()->getSchemaBuilder();
+        // What Corkboard 1.0.0 left behind: a column on users holding marc's link.
+        $schema->table('users', fn (\Illuminate\Database\Schema\Blueprint $t) => $t->string('corkboard_feed_token', 40)->nullable()->unique());
+        $this->database()->table('users')->where('id', 4)->update(['corkboard_feed_token' => str_repeat('a', 40)]);
+
+        $migration = require __DIR__.'/../../../migrations/2026_11_19_000004_create_corkboard_feed_tokens.php';
+        $migration['up']($schema);
+
+        $this->assertFalse($schema->hasColumn('users', 'corkboard_feed_token'));
+        $this->assertSame(str_repeat('a', 40), $this->database()->table('corkboard_feed_tokens')->where('user_id', 4)->value('token'));
+        [$status] = $this->call('GET', '/feed/'.str_repeat('a', 40), null);
+        $this->assertSame(200, $status, 'the old link keeps working');
+    }
+
+    #[Test]
+    public function erasing_a_member_takes_them_off_teams_and_retires_their_feed(): void
+    {
+        $this->call('POST', '/feed-token', 4);
+        $this->call('PATCH', '/cards/200', 3, ['assigneeIds' => [4]]);
+        $c = $this->app()->getContainer();
+        $type = new \ErnestDefoe\Corkboard\Gdpr\CorkboardData(
+            User::query()->findOrFail(4), null, $c->make(\Illuminate\Contracts\Filesystem\Factory::class),
+            $c->make(\Flarum\Settings\SettingsRepositoryInterface::class), $c->make(\Flarum\Http\UrlGenerator::class),
+            $c->make(\Flarum\Locale\TranslatorInterface::class),
+        );
+        $this->assertStringContainsString('SECRET-CARD', json_encode($type->export()) ?: '');
+        $type->anonymize();
+        $this->assertSame(0, $this->database()->table('corkboard_members')->where('user_id', 4)->count());
+        $this->assertSame(0, $this->database()->table('corkboard_assignees')->where('user_id', 4)->count());
+        $this->assertSame(0, $this->database()->table('corkboard_feed_tokens')->where('user_id', 4)->count());
+    }
+
+    #[Test]
+    public function the_forum_payload_says_what_the_viewer_may_do(): void
+    {
+        $guest = json_decode((string) $this->send($this->request('GET', '/api'))->getBody(), true)['data']['attributes'];
+        $this->assertFalse($guest['corkboardCanCreate']);
+        $this->assertTrue($guest['corkboardCanView']);
+        $this->assertSame('team', $guest['corkboardDefaultVisibility']);
+        $this->assertSame(['public', 'members', 'team', 'private'], $guest['corkboardVisibilities']);
+
+        $member = json_decode((string) $this->send($this->request('GET', '/api', ['authenticatedAs' => 3]))->getBody(), true)['data']['attributes'];
+        $this->assertTrue($member['corkboardCanCreate']);
+        $this->assertFalse($member['corkboardCanModerate']);
     }
 
     #[Test]
@@ -339,6 +457,42 @@ class CorkboardTest extends TestCase
         $rows = $this->database()->table('notifications')->orderBy('type')->get(['type', 'user_id'])->map(fn ($r) => $r->type.':'.$r->user_id)->all();
         // Card 200 is Marc's (assigned), due in 5 hours; card 100 has nobody on it, so its owner Ana hears it's overdue.
         $this->assertSame(['corkboardDueSoon:4', 'corkboardOverdue:3'], $rows);
+    }
+
+    #[Test]
+    public function old_done_cards_are_archived_and_their_boards_recounted(): void
+    {
+        $db = $this->database();
+        $db->table('corkboard_columns')->whereIn('id', [12, 22])->update(['auto_archive_days' => 7]);
+        $old = Carbon::now()->subDays(10);
+        $db->table('corkboard_cards')->whereIn('id', [100, 200])->update(['column_id' => $db->raw('column_id + 1'), 'completed_at' => $old]);
+        $db->table('corkboard_cards')->insert(['id' => 701, 'board_id' => 2, 'column_id' => 22, 'position' => 9, 'title' => 'Fresh', 'priority' => 'none', 'user_id' => 3, 'comment_count' => 0, 'checklist_total' => 0, 'checklist_done' => 0, 'due_all_day' => false, 'completed_at' => Carbon::now(), 'created_at' => $old, 'updated_at' => $old]);
+
+        $command = $this->app()->getContainer()->make(\ErnestDefoe\Corkboard\Console\PurgeCommand::class);
+        $command->setLaravel($this->app()->getContainer());
+        $command->run(new \Symfony\Component\Console\Input\ArrayInput([]), new \Symfony\Component\Console\Output\NullOutput());
+
+        $this->assertNotNull($db->table('corkboard_cards')->where('id', 100)->value('archived_at'));
+        $this->assertNotNull($db->table('corkboard_cards')->where('id', 200)->value('archived_at'));
+        $this->assertNull($db->table('corkboard_cards')->where('id', 701)->value('archived_at'), 'done today: stays');
+        $board2 = $db->table('corkboard_boards')->where('id', 2)->first();
+        $this->assertSame([1, 1, 2], [(int) $board2->card_count, (int) $board2->done_count, (int) $board2->version]);
+        $this->assertSame(0, (int) $db->table('corkboard_boards')->where('id', 1)->value('card_count'));
+        $this->assertSame(1, (int) $db->table('corkboard_boards')->where('id', 3)->value('version'), 'untouched boards keep their version');
+    }
+
+    #[Test]
+    public function a_card_takes_at_most_twenty_people_and_only_people_who_can_see_the_board(): void
+    {
+        [$status] = $this->call('PATCH', '/cards/200', 3, ['assigneeIds' => range(1000, 1020)]);
+        $this->assertSame(422, $status);
+        // Board 2 (team): marc by name, vol through Volunteers, mod by permission; the normal user can't see it.
+        $this->call('PATCH', '/cards/200', 3, ['assigneeIds' => [2, 4, 5, 6]]);
+        $ids = $this->database()->table('corkboard_assignees')->where('card_id', 200)->orderBy('user_id')->pluck('user_id')->map(fn ($id) => (int) $id)->all();
+        $this->assertSame([4, 5, 6], $ids);
+        // Board 3 is private: the Volunteers group row doesn't count.
+        $this->call('PATCH', '/cards/300', 3, ['assigneeIds' => [4, 5]]);
+        $this->assertSame([4], $this->database()->table('corkboard_assignees')->where('card_id', 300)->pluck('user_id')->map(fn ($id) => (int) $id)->all());
     }
 
     #[Test]

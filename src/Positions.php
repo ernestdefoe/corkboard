@@ -6,8 +6,10 @@ use Illuminate\Database\ConnectionInterface;
 
 /**
  * Order by integer positions with gaps: a drop between 2048 and 3072 lands on 2560, one row
- * written. When a gap closes the list is renumbered in one CASE update. The rows are locked while
- * the position is worked out, so two people dropping into one column at once never collide.
+ * written. When a gap closes the list is renumbered in one CASE update. Two people dropping into
+ * the same slot at the same moment both land on one position: lists order by position, then id,
+ * so both cards still show in a fixed order, and the next drop there sees the closed gap and
+ * renumbers the list.
  */
 class Positions
 {
@@ -71,7 +73,6 @@ class Positions
             ->where($scope, $scopeId)
             ->when($except, fn ($q) => $q->where('id', '<>', $except))
             ->orderBy('position')->orderBy('id')
-            ->lockForUpdate()
             ->pluck('position', 'id')
             ->map(fn ($p) => (int) $p)
             ->all();

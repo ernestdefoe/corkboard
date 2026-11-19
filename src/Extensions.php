@@ -2,21 +2,23 @@
 
 namespace ErnestDefoe\Corkboard;
 
-use Flarum\Extension\ExtensionManager;
-
-/** Which optional extensions are switched on. No queries: the enabled list is already loaded. */
+/**
+ * Which optional extensions Corkboard works with right now. Each one is switched on by an
+ * Integration extender inside Extend\Conditional in extend.php; nothing asks at runtime.
+ */
 class Extensions
 {
-    /** @var array<string, bool> */
-    private array $memo = [];
+    /** @var array<string, true> */
+    private array $on = [];
 
-    public function __construct(private readonly ExtensionManager $extensions)
+    public function switchOn(string $id): void
     {
+        $this->on[$id] = true;
     }
 
     public function enabled(string $id): bool
     {
-        return $this->memo[$id] ??= $this->extensions->isEnabled($id);
+        return isset($this->on[$id]);
     }
 
     public function tags(): bool

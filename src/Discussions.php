@@ -26,6 +26,7 @@ class Discussions
         private readonly UrlGenerator $url,
         private readonly TranslatorInterface $translator,
         private readonly Log $log,
+        private readonly Settings $settings,
     ) {
     }
 
@@ -61,18 +62,9 @@ class Discussions
 
         $card->discussion_id = $discussion->id;
         $card->save();
-        self::markLinked();
+        $this->settings->markLinked();
         $this->log->record($board, $card->id, $actor, 'card_linked', ['d' => $discussion->id]);
 
         return $discussion;
-    }
-
-    /** From now on discussions carry the board chip (until then it costs no query). */
-    public static function markLinked(): void
-    {
-        $settings = resolve(\Flarum\Settings\SettingsRepositoryInterface::class);
-        if (! $settings->get('ernestdefoe-corkboard.linked')) {
-            $settings->set('ernestdefoe-corkboard.linked', '1');
-        }
     }
 }

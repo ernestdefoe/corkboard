@@ -20,8 +20,6 @@ class Column extends AbstractModel
 {
     protected $table = 'corkboard_columns';
 
-    protected $guarded = [];
-
     protected $casts = ['is_done' => 'boolean', 'position' => 'integer', 'wip_limit' => 'integer', 'auto_archive_days' => 'integer'];
 
     public $timestamps = true;

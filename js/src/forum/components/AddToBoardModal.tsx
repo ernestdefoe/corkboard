@@ -128,7 +128,9 @@ export default class AddToBoardModal extends FormModal<AddToBoardModalAttrs> {
         });
         m.route.set(boardUrl(board, answer.card.id));
       })
-      .catch(() => {})
+      .catch(() => {
+        /* call() already showed the error */
+      })
       .finally(() => {
         this.loading = false;
         m.redraw();

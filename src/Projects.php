@@ -2,59 +2,60 @@
 
 namespace ErnestDefoe\Corkboard;
 
+use ErnestDefoe\Projects\Model\Project;
 use Flarum\User\User;
-use Illuminate\Database\ConnectionInterface;
 
 /**
- * ernestdefoe/projects, read straight from its tables (only when it's enabled): a board can
- * belong to a project its author or a co-author picks; the project page shows that board's
- * progress to people who may see the board.
+ * ernestdefoe/projects, through its own Project model (only once its Integration has switched it
+ * on): a board can belong to a project its author or a co-author picks; the project page shows that
+ * board's progress to people who may see the board.
  */
 class Projects
 {
-    public static function enabled(): bool
+    public function __construct(private readonly Extensions $extensions)
     {
-        return resolve(Extensions::class)->projects();
     }
 
-    /** @return array<string, mixed>|null */
-    public static function summary(ConnectionInterface $db, int $id, User $actor): ?array
+    public function enabled(): bool
     {
-        if (! self::enabled()) {
+        return $this->extensions->projects();
+    }
+
+    /** @return array<string, mixed>|null the project a board shows, if this person may see it */
+    public function summary(int $id, User $actor): ?array
+    {
+        if (! $this->enabled()) {
             return null;
         }
-        $project = $db->table('projects')->where('id', $id)->first(['id', 'title', 'slug', 'status', 'user_id']);
-        if (! $project || ($project->status !== 'published' && ! self::isAuthor($db, $id, $actor) && ! $actor->hasPermission('corkboard.moderate'))) {
+        $project = Project::query()->find($id, ['id', 'title', 'slug', 'status', 'user_id']);
+        if (! $project || (! $project->isPublished() && ! $this->isAuthor($id, $actor) && ! $actor->hasPermission('corkboard.moderate'))) {
             return null;
         }
 
         return ['id' => (int) $project->id, 'title' => $project->title, 'slug' => $project->slug];
     }
 
-    public static function isAuthor(ConnectionInterface $db, int $id, User $actor): bool
+    public function isAuthor(int $id, User $actor): bool
     {
-        if ($actor->isGuest()) {
+        if (! $this->enabled() || $actor->isGuest()) {
             return false;
         }
-        if ((int) $db->table('projects')->where('id', $id)->value('user_id') === (int) $actor->id) {
-            return true;
-        }
 
-        return $db->getSchemaBuilder()->hasTable('project_authors')
-            && $db->table('project_authors')->where('project_id', $id)->where('user_id', $actor->id)->exists();
+        return Project::query()->whereKey($id)
+            ->where(fn ($q) => $q->where('user_id', $actor->id)->orWhereHas('coAuthors', fn ($a) => $a->where('user_id', $actor->id)))
+            ->exists();
     }
 
     /** @return list<array{id: int, title: string}> projects this person may attach a board to */
-    public static function mine(ConnectionInterface $db, User $actor): array
+    public function mine(User $actor): array
     {
-        if (! self::enabled() || $actor->isGuest()) {
+        if (! $this->enabled() || $actor->isGuest()) {
             return [];
         }
-        $q = $db->table('projects')->where('user_id', $actor->id);
-        if ($db->getSchemaBuilder()->hasTable('project_authors')) {
-            $q->orWhereIn('id', $db->table('project_authors')->where('user_id', $actor->id)->select('project_id'));
-        }
 
-        return $q->orderBy('title')->limit(100)->get(['id', 'title'])->map(fn ($p) => ['id' => (int) $p->id, 'title' => $p->title])->all();
+        return Project::query()
+            ->where(fn ($q) => $q->where('user_id', $actor->id)->orWhereHas('coAuthors', fn ($a) => $a->where('user_id', $actor->id)))
+            ->orderBy('title')->limit(100)->get(['id', 'title'])
+            ->map(fn (Project $p) => ['id' => (int) $p->id, 'title' => $p->title])->values()->all();
     }
 }

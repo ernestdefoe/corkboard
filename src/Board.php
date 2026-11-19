@@ -43,8 +43,6 @@ class Board extends AbstractModel
 
     protected $table = 'corkboard_boards';
 
-    protected $guarded = [];
-
     protected $casts = [
         'is_template' => 'boolean',
         'card_count' => 'integer',

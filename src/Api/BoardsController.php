@@ -42,6 +42,7 @@ class BoardsController extends Controller
         private readonly ConnectionInterface $db,
         private readonly TranslatorInterface $translator,
         private readonly Push $push,
+        private readonly Projects $projects,
     ) {
     }
 
@@ -68,7 +69,9 @@ class BoardsController extends Controller
         }
         $text = trim((string) ($q['q'] ?? ''));
         if ($text !== '') {
-            $query->where('corkboard_boards.title', 'like', '%'.addcslashes($text, '%_\\').'%');
+            // A word anywhere in the title ("redesign" finds "Website redesign"). It runs on the
+            // visible, tab-filtered boards only and stops at one page, so it never scans posts-sized tables.
+            $query->whereLike('corkboard_boards.title', '%'.addcslashes($text, '%_\\').'%');
         }
 
         $pins = $actor->isGuest() ? collect() : $this->db->table('corkboard_pins')->where('user_id', $actor->id)->pluck('position', 'board_id');
@@ -124,7 +127,7 @@ class BoardsController extends Controller
     private function mine(Builder $query, User $actor): void
     {
         if ($actor->isGuest()) {
-            $query->whereRaw('1 = 0');
+            $query->whereIn('corkboard_boards.id', []);
 
             return;
         }
@@ -151,10 +154,10 @@ class BoardsController extends Controller
         if (! $actor->isGuest()) {
             $out['pinned'] = $this->db->table('corkboard_pins')->where('user_id', $actor->id)->where('board_id', $board->id)->exists();
             if ($this->access->can($board, $actor, 'manager')) {
-                $out['projects'] = Projects::mine($this->db, $actor);
+                $out['projects'] = $this->projects->mine($actor);
             }
         }
-        $out['push'] = Push::available(resolve('container'));
+        $out['push'] = $this->push->available();
 
         return $out;
     }
@@ -249,7 +252,7 @@ class BoardsController extends Controller
         }
         $custom = [];
         if ($actor->hasPermission('corkboard.useTemplates')) {
-            $boards = Board::query()->where('is_template', true)->where('status', 'active')->orderBy('title')->limit(30)->get(['id', 'title', 'color']);
+            $boards = Board::whereVisibleTo($actor)->where('is_template', true)->where('status', 'active')->orderBy('title')->limit(30)->get(['id', 'title', 'color']);
             $columns = $boards->isEmpty() ? collect() : Column::query()->whereIn('board_id', $boards->pluck('id'))->orderBy('position')->get(['board_id', 'title'])->groupBy('board_id');
             foreach ($boards as $board) {
                 $custom[] = ['key' => (string) $board->id, 'title' => $board->title, 'color' => $board->color, 'columns' => ($columns[$board->id] ?? collect())->pluck('title')->all()];

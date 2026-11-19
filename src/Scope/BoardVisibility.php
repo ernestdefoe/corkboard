@@ -29,7 +29,7 @@ class BoardVisibility
             if ($actor->hasPermission('corkboard.view')) {
                 $q->whereIn('corkboard_boards.visibility', $actor->isGuest() ? ['public'] : ['public', 'members']);
             } else {
-                $q->whereRaw('1 = 0');
+                $q->whereIn('corkboard_boards.id', []);
             }
 
             if ($actor->isGuest()) {
@@ -38,11 +38,11 @@ class BoardVisibility
 
             $groups = Access::groupIds($actor);
             $q->orWhere('corkboard_boards.owner_id', $actor->id)
-                ->orWhereExists(fn (QueryBuilder $m) => $m->selectRaw('1')->from('corkboard_members')
+                ->orWhereExists(fn (QueryBuilder $m) => $m->select('corkboard_members.board_id')->from('corkboard_members')
                     ->whereColumn('corkboard_members.board_id', 'corkboard_boards.id')
                     ->where('corkboard_members.user_id', $actor->id))
                 ->orWhere(fn (Builder $team) => $team->where('corkboard_boards.visibility', '<>', 'private')
-                    ->whereExists(fn (QueryBuilder $m) => $m->selectRaw('1')->from('corkboard_members')
+                    ->whereExists(fn (QueryBuilder $m) => $m->select('corkboard_members.board_id')->from('corkboard_members')
                         ->whereColumn('corkboard_members.board_id', 'corkboard_boards.id')
                         ->whereIn('corkboard_members.group_id', $groups)));
         });

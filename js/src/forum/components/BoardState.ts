@@ -206,7 +206,9 @@ export class BoardState {
           this.behind();
         }
       })
-      .catch(() => {})
+      .catch(() => {
+        /* a missed poll: the next one (or a push) catches the board up */
+      })
       .finally(() => this.schedule());
   }
 

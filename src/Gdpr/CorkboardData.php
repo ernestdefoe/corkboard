@@ -3,7 +3,6 @@
 namespace ErnestDefoe\Corkboard\Gdpr;
 
 use Flarum\Gdpr\Data\Type;
-use Illuminate\Database\ConnectionInterface;
 
 /**
  * A member's cards, comments and boards in their data export. Erasing them keeps their comments
@@ -29,7 +28,8 @@ class CorkboardData extends Type
 
     public function export(): ?array
     {
-        $db = resolve(ConnectionInterface::class);
+        // flarum/gdpr builds types with `new`, so nothing can be injected: the user's own connection.
+        $db = $this->user->getConnection();
         $id = $this->user->id;
 
         return [
@@ -43,12 +43,12 @@ class CorkboardData extends Type
 
     public function anonymize(): void
     {
-        $db = resolve(ConnectionInterface::class);
+        $db = $this->user->getConnection();
         $id = $this->user->id;
         $db->table('corkboard_comments')->where('user_id', $id)->update(['user_id' => null]);
         $db->table('corkboard_cards')->where('user_id', $id)->update(['user_id' => null]);
         $db->table('corkboard_boards')->where('owner_id', $id)->update(['owner_id' => null]);
-        foreach (['corkboard_assignees', 'corkboard_watchers', 'corkboard_members', 'corkboard_pins', 'corkboard_outbox'] as $table) {
+        foreach (['corkboard_assignees', 'corkboard_watchers', 'corkboard_members', 'corkboard_pins', 'corkboard_outbox', 'corkboard_feed_tokens'] as $table) {
             $db->table($table)->where('user_id', $id)->delete();
         }
         $db->table('corkboard_activity')->where('user_id', $id)->update(['user_id' => null]);

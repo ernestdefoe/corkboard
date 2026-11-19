@@ -6,7 +6,9 @@
  * My cards and Due soon widgets for fof/widgets-core (and Bespoke through it) and Page Builder.
  *
  * Reads go through one visibility rule (Scope\BoardVisibility; cards follow their board) and
- * one role rule (Access). The API is plain JSON under /api/corkboard (src/Api).
+ * one role rule (Access). The board API is plain JSON under /api/corkboard (src/Api): one slim
+ * answer per board at a fixed query count, and a drag is one change that answers with the board's
+ * new version. The README says why that isn't JSON:API.
  *
  * 🚨 String literals only below, never a class constant read at load time (Settings::KEY): it
  * autoloads during boot and fatals every request while a deploy is swapping composer's autoload
@@ -18,16 +20,14 @@ use ErnestDefoe\Corkboard\Board;
 use ErnestDefoe\Corkboard\Card;
 use ErnestDefoe\Corkboard\Console;
 use ErnestDefoe\Corkboard\Notification;
-use Flarum\Api\Context;
 use Flarum\Api\Resource\DiscussionResource;
 use Flarum\Api\Resource\ForumResource;
-use Flarum\Api\Schema;
 use Flarum\Extend;
 use Illuminate\Console\Scheduling\Event as ScheduledEvent;
 
 $board = '{id:\d+}';
 
-$extenders = [
+return [
     (new Extend\Frontend('forum'))
         ->js(__DIR__.'/js/dist/forum.js')
         // The board, its settings and the lists are one chunk in here; undeclared chunks 404.
@@ -134,31 +134,11 @@ $extenders = [
         ->registerPreference('notify_corkboardTeamAdded_email', 'boolval', true)
         ->registerPreference('notify_corkboardCompleted_email', 'boolval', false),
 
-    // The "On <board> · <column>" chip: only once some card links a discussion (no query before), and
-    // only where discussions themselves are listed or shown (not on every post that includes one).
     (new Extend\ApiResource(DiscussionResource::class))
-        ->fields(fn () => [
-            Schema\Arr::make('corkboardCards')
-                ->visible(fn ($discussion, Context $context) => ($context->listing(DiscussionResource::class) || $context->showing(DiscussionResource::class))
-                    && (bool) resolve(\Flarum\Settings\SettingsRepositoryInterface::class)->get('ernestdefoe-corkboard.linked'))
-                ->get(fn ($discussion, Context $context) => resolve(Api\DiscussionCards::class)($discussion, $context)),
-        ]),
+        ->fields(Api\DiscussionFields::class),
 
     (new Extend\ApiResource(ForumResource::class))
-        ->fields(fn () => [
-            Schema\Boolean::make('corkboardCanCreate')
-                ->get(fn ($forum, Context $context) => resolve(\ErnestDefoe\Corkboard\Access::class)->createRefusal($context->getActor(), resolve(\ErnestDefoe\Corkboard\Settings::class)) === null),
-            Schema\Boolean::make('corkboardCanPublic')
-                ->get(fn ($forum, Context $context) => $context->getActor()->hasPermission('corkboard.createPublic')),
-            Schema\Boolean::make('corkboardCanModerate')
-                ->get(fn ($forum, Context $context) => $context->getActor()->hasPermission('corkboard.moderate')),
-            Schema\Boolean::make('corkboardCanView')
-                ->get(fn ($forum, Context $context) => $context->getActor()->hasPermission('corkboard.view') || ! $context->getActor()->isGuest()),
-            Schema\Arr::make('corkboardVisibilities')
-                ->get(fn () => resolve(\ErnestDefoe\Corkboard\Settings::class)->visibilities()),
-            Schema\Str::make('corkboardDefaultVisibility')
-                ->get(fn () => resolve(\ErnestDefoe\Corkboard\Settings::class)->defaultVisibility()),
-        ]),
+        ->fields(Api\ForumFields::class),
 
     (new Extend\Settings())
         ->default('ernestdefoe-corkboard.visibilities', '["public","members","team","private"]')
@@ -182,16 +162,20 @@ $extenders = [
             $event->daily()->withoutOverlapping();
         }),
 
+    (new Extend\ServiceProvider())
+        ->register(\ErnestDefoe\Corkboard\CorkboardServiceProvider::class),
+
     (new Extend\Conditional())
+        ->whenExtensionEnabled('flarum-tags', fn () => [new \ErnestDefoe\Corkboard\Integration('flarum-tags')])
+        ->whenExtensionEnabled('flarum-nicknames', fn () => [new \ErnestDefoe\Corkboard\Integration('flarum-nicknames')])
+        ->whenExtensionEnabled('ernestdefoe-projects', fn () => [new \ErnestDefoe\Corkboard\Integration('ernestdefoe-projects')])
         ->whenExtensionEnabled('flarum-gdpr', fn () => [
             (new \Flarum\Gdpr\Extend\UserData())->addType(\ErnestDefoe\Corkboard\Gdpr\CorkboardData::class),
+        ])
+        // My cards, Due soon and Board progress as Page Builder blocks.
+        ->whenExtensionEnabled('ernestdefoe-page-builder', fn () => [
+            new \Ernestdefoe\PageBuilder\Extend\PageBuilderBlock(\ErnestDefoe\Corkboard\Widget\MyCardsBlock::class),
+            new \Ernestdefoe\PageBuilder\Extend\PageBuilderBlock(\ErnestDefoe\Corkboard\Widget\DueSoonBlock::class),
+            new \Ernestdefoe\PageBuilder\Extend\PageBuilderBlock(\ErnestDefoe\Corkboard\Widget\ProgressBlock::class),
         ]),
 ];
-
-if (class_exists(\Ernestdefoe\PageBuilder\Extend\PageBuilderBlock::class)) {
-    foreach (['MyCards', 'DueSoon', 'Progress'] as $block) {
-        $extenders[] = new \Ernestdefoe\PageBuilder\Extend\PageBuilderBlock('ErnestDefoe\\Corkboard\\Widget\\'.$block.'Block');
-    }
-}
-
-return $extenders;

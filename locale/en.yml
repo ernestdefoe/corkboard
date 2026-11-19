@@ -26,6 +26,7 @@ ernestdefoe-corkboard:
     card:
       discussion_footer: "From the card on [{board}]({url})."
     error:
+      assignees: A card can be given to at most 20 people.
       min_posts: You need to post a little more before you can start a board.
       template: That template isn't available.
       title: Give the board a name of up to 160 characters.
@@ -379,7 +380,7 @@ ernestdefoe-corkboard:
       clone_cards: Copy the open cards too? (Cancel copies only the columns and labels.)
       template: Save as a template
       untemplate: Stop being a template
-      template_help: Templates show to everyone who can start a board.
+      template_help: Templates show to everyone who can start a board and can see this one.
       archive: Archive
       archive_help: The board leaves the list and becomes read-only. You can reopen it from the Archived tab.
       delete: Delete the board
@@ -422,14 +423,14 @@ ernestdefoe-corkboard:
       open_mine: Open My cards →
       progress_pick: Pick a board in this block's settings.
     notification:
-      corkboardAssigned: "{user} gave you “{card}”"
+      corkboardAssigned: "{username} gave you “{card}”"
       corkboardDueSoon: "“{card}” is due soon"
       corkboardOverdue: "“{card}” is overdue"
-      corkboardMentioned: "{user} mentioned you on “{card}”"
-      corkboardCommented: "{user} commented on “{card}”"
-      corkboardDone: "{user} finished “{card}”"
-      corkboardTeamAdded: "{user} added you to the team of {board}"
-      corkboardCompleted: "{user} marked {board} completed"
+      corkboardMentioned: "{username} mentioned you on “{card}”"
+      corkboardCommented: "{username} commented on “{card}”"
+      corkboardDone: "{username} finished “{card}”"
+      corkboardTeamAdded: "{username} added you to the team of {board}"
+      corkboardCompleted: "{username} marked {board} completed"
       corkboardAssigned_preference: Someone gives me a card on a board
       corkboardDueSoon_preference: A card I'm on is due soon
       corkboardOverdue_preference: A card I'm on is overdue

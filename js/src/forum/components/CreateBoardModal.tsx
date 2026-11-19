@@ -112,7 +112,9 @@ export default class CreateBoardModal extends FormModal<CreateBoardModalAttrs> {
         this.hide();
         m.route.set(boardUrl(answer.board));
       })
-      .catch(() => {})
+      .catch(() => {
+        /* call() already showed the error */
+      })
       .finally(() => {
         this.loading = false;
         m.redraw();

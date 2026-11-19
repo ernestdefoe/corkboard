@@ -34,7 +34,7 @@ class FeedController extends Controller
     protected function token(ServerRequestInterface $request, User $actor): array
     {
         $actor->assertRegistered();
-        $token = $actor->getAttribute('corkboard_feed_token');
+        $token = $this->db->table('corkboard_feed_tokens')->where('user_id', $actor->id)->value('token');
 
         return ['url' => $token ? $this->url->to('api')->route('corkboard.feed.ics', ['token' => $token]) : null];
     }
@@ -50,8 +50,11 @@ class FeedController extends Controller
     private function renew(User $actor): string
     {
         $token = Str::random(40);
-        $this->db->table('users')->where('id', $actor->id)->update(['corkboard_feed_token' => $token]);
-        $actor->setAttribute('corkboard_feed_token', $token);
+        $this->db->table('corkboard_feed_tokens')->upsert(
+            [['user_id' => $actor->id, 'token' => $token, 'created_at' => Carbon::now()]],
+            ['user_id'],
+            ['token', 'created_at']
+        );
 
         return $token;
     }
@@ -59,7 +62,8 @@ class FeedController extends Controller
     protected function ics(ServerRequestInterface $request, User $actor): ResponseInterface
     {
         $token = (string) ($request->getAttribute('routeParameters', [])['token'] ?? '');
-        $user = strlen($token) === 40 ? User::query()->where('corkboard_feed_token', $token)->first() : null;
+        $owner = strlen($token) === 40 ? $this->db->table('corkboard_feed_tokens')->where('token', $token)->value('user_id') : null;
+        $user = $owner ? User::query()->find($owner) : null;
         if (! $user) {
             return new Response\TextResponse('Not found', 404);
         }

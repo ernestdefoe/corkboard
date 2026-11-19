@@ -22,8 +22,6 @@ class Comment extends AbstractModel
 {
     protected $table = 'corkboard_comments';
 
-    protected $guarded = [];
-
     protected $casts = ['edited_at' => 'datetime', 'created_at' => 'datetime', 'updated_at' => 'datetime'];
 
     public $timestamps = true;

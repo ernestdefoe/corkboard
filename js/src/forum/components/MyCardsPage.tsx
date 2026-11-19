@@ -48,7 +48,9 @@ export default class MyCardsPage extends Page {
         this.cards = answer.cards;
         this.total = answer.total;
       })
-      .catch(() => {})
+      .catch(() => {
+        /* a quiet read: the list stays as it was, and the next load tries again */
+      })
       .finally(() => {
         this.loading = false;
         m.redraw();

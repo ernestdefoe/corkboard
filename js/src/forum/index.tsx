@@ -5,14 +5,14 @@ import LinkButton from 'flarum/common/components/LinkButton';
 import Button from 'flarum/common/components/Button';
 import Link from 'flarum/common/components/Link';
 import Icon from 'flarum/common/components/Icon';
-import Notification from 'flarum/forum/components/Notification';
 import DiscussionControls from 'flarum/forum/utils/DiscussionControls';
 import type Mithril from 'mithril';
-import { CorkboardBoard, CorkboardCard } from './models';
 import { registerFof, registerPageBuilder } from './widgets/hosts';
+import { NOTIFICATIONS } from './notifications';
 import { boardUrl, t, ui } from './util';
 import ProjectBoards from './ProjectBoards';
 
+export { default as extend } from './extend';
 export { default as CorkboardWidget } from './widgets/Widget';
 
 /*
@@ -20,45 +20,6 @@ export { default as CorkboardWidget } from './widgets/Widget';
  * list, a board, its settings, My cards and every dialog are one chunk (./components), fetched
  * the first time one is opened.
  */
-
-const NOTIFICATIONS: Record<string, string> = {
-  corkboardAssigned: 'fas fa-user-tag',
-  corkboardDueSoon: 'far fa-clock',
-  corkboardOverdue: 'fas fa-triangle-exclamation',
-  corkboardMentioned: 'fas fa-at',
-  corkboardCommented: 'far fa-comment',
-  corkboardDone: 'fas fa-check',
-  corkboardTeamAdded: 'fas fa-users',
-  corkboardCompleted: 'fas fa-flag-checkered',
-};
-
-function notificationComponent(type: string) {
-  return class extends Notification {
-    icon() {
-      return NOTIFICATIONS[type];
-    }
-    href() {
-      const subject: any = (this.attrs.notification as any).subject();
-      if (!subject) return app.route('corkboard.index');
-      return subject instanceof CorkboardCard
-        ? boardUrl({ id: subject.boardId(), slug: subject.boardSlug() }, Number(subject.id()))
-        : boardUrl({ id: Number(subject.id()), slug: subject.slug() });
-    }
-    content() {
-      const n: any = this.attrs.notification;
-      const subject: any = n.subject();
-      return t(`notification.${type}`, {
-        user: n.fromUser(),
-        card: subject?.title?.() || '',
-        board: subject?.boardTitle ? subject.boardTitle() : subject?.title?.() || '',
-      });
-    }
-    excerpt() {
-      const subject: any = (this.attrs.notification as any).subject();
-      return subject instanceof CorkboardCard ? subject.boardTitle() : '';
-    }
-  };
-}
 
 /** "On Spring Meetup 2027 · Booked" chips for a discussion, linking to the cards. */
 function chips(discussion: any): Mithril.Children {
@@ -80,29 +41,13 @@ function chips(discussion: any): Mithril.Children {
   );
 }
 
-const lazy = (name: 'BoardsPage' | 'BoardPage' | 'SettingsPage' | 'MyCardsPage') => () =>
-  ui().then(async (chunk) => {
-    await chunk.loadCore();
-    return { default: chunk[name] as any };
-  });
-
 app.initializers.add('ernestdefoe-corkboard', () => {
-  app.store.models['corkboard-cards'] = CorkboardCard;
-  app.store.models['corkboard-boards'] = CorkboardBoard;
-
+  // A host that isn't installed, or that changed shape, just goes without Corkboard's widgets.
   try {
     registerPageBuilder();
-  } catch (e) {
-    console.warn('[corkboard] Page Builder registration failed', e);
+  } catch {
+    /* Page Builder is absent or changed: its blocks are optional */
   }
-
-  // /corkboard/mine before /corkboard/:id: routes match in order.
-  app.routes['corkboard.index'] = { path: '/corkboard', component: lazy('BoardsPage') };
-  app.routes['corkboard.mine'] = { path: '/corkboard/mine', component: lazy('MyCardsPage') };
-  app.routes['corkboard.settings'] = { path: '/corkboard/:id/settings', component: lazy('SettingsPage') };
-  app.routes['corkboard.board'] = { path: '/corkboard/:id', component: lazy('BoardPage') };
-
-  Object.keys(NOTIFICATIONS).forEach((type) => (app.notificationComponents[type] = notificationComponent(type)));
 
   // String form: these live in lazy chunks; extending an imported copy patches one core never renders.
   extend('flarum/forum/components/NotificationGrid', 'notificationTypes', function (items: ItemList<any>) {
@@ -146,12 +91,15 @@ app.initializers.add('ernestdefoe-corkboard', () => {
   });
 });
 
-// After every initializer, so fof/forum-widgets-core has set itself up.
-override(app, 'mount', function (original: any, ...args: any[]) {
-  try {
-    registerFof();
-  } catch (e) {
-    console.warn('[corkboard] FoF widget registration failed', e);
-  }
-  return original(...args);
-});
+// Last of all initializers (lowest priority), so fof/forum-widgets-core has set itself up.
+app.initializers.add(
+  'ernestdefoe-corkboard-fof-widgets',
+  () => {
+    try {
+      registerFof();
+    } catch {
+      /* fof/forum-widgets-core is absent or changed: its widgets are optional */
+    }
+  },
+  -1000
+);

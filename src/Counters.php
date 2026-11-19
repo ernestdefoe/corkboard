@@ -22,6 +22,25 @@ class Counters
         $this->db->table('corkboard_boards')->where('id', $board->id)->update(['card_count' => $board->card_count, 'done_count' => $board->done_count]);
     }
 
+    /**
+     * Recounts several boards in one statement and moves their version on, so open boards catch up.
+     *
+     * @param list<int> $ids
+     */
+    public function boards(array $ids): void
+    {
+        if (! $ids) {
+            return;
+        }
+        // count(*) of each board's live cards, as a correlated subquery: portable on every driver.
+        $cards = fn () => $this->db->table('corkboard_cards')->selectRaw('count(*)')
+            ->whereColumn('corkboard_cards.board_id', 'corkboard_boards.id')->whereNull('corkboard_cards.archived_at');
+        $this->db->table('corkboard_boards')->whereIn('id', $ids)->increment('version', 1, [
+            'card_count' => $cards(),
+            'done_count' => $cards()->whereNotNull('corkboard_cards.completed_at'),
+        ]);
+    }
+
     public function checklist(Card $card): void
     {
         $items = $this->db->table('corkboard_checklist')->where('card_id', $card->id);

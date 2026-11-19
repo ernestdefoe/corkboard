@@ -28,6 +28,8 @@ class Presenter
         private readonly ConnectionInterface $db,
         private readonly Access $access,
         private readonly Formatter $formatter,
+        private readonly Extensions $extensions,
+        private readonly Projects $projects,
     ) {
     }
 
@@ -320,7 +322,7 @@ class Presenter
     /** @return array<string, mixed>|null */
     private function tag(int $id, User $actor): ?array
     {
-        if (! resolve(Extensions::class)->tags()) {
+        if (! $this->extensions->tags()) {
             return null;
         }
         // A restricted tag's name is only for people who may see the tag.
@@ -332,7 +334,7 @@ class Presenter
     /** @return array<string, mixed>|null */
     private function project(int $id, User $actor): ?array
     {
-        return Projects::summary($this->db, $id, $actor);
+        return $this->projects->summary($id, $actor);
     }
 
     public static function iso(mixed $value): ?string

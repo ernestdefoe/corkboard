@@ -23,6 +23,9 @@ use Illuminate\Database\ConnectionInterface;
  */
 class Cards
 {
+    /** The most people one card can be given to. */
+    public const MAX_ASSIGNEES = 20;
+
     /** @var list<object> events to fire once the transaction has committed */
     private array $events = [];
 
@@ -35,6 +38,7 @@ class Cards
         private readonly Counters $counters,
         private readonly Formatter $formatter,
         private readonly Dispatcher $dispatcher,
+        private readonly Settings $settings,
     ) {
     }
 
@@ -167,7 +171,7 @@ class Cards
             }
             $card->discussion_id = $id;
             $card->save();
-            $id && Discussions::markLinked();
+            $id && $this->settings->markLinked();
             $this->log->record($board, $card->id, $actor, $id ? 'card_linked' : 'card_unlinked', $id ? ['d' => $id] : []);
         }
 
@@ -199,12 +203,14 @@ class Cards
         $board = $card->board;
         $current = $this->db->table('corkboard_assignees')->where('card_id', $card->id)->pluck('user_id')->map(fn ($id) => (int) $id)->all();
         $wanted = array_values(array_unique(array_filter($ids)));
+        if (count($wanted) > self::MAX_ASSIGNEES) {
+            throw Refusal::because('assignees', 'assigneeIds');
+        }
 
         // Only people who can see the board can be put on its cards.
         $added = array_values(array_diff($wanted, $current));
         if ($added) {
-            $added = User::query()->whereIn('id', $added)->get()
-                ->filter(fn (User $u) => Board::whereVisibleTo($u)->whereKey($board->id)->exists())
+            $added = $this->access->audience($board, User::query()->whereIn('id', $added)->with('groups')->get())
                 ->pluck('id')->map(fn ($id) => (int) $id)->all();
         }
         $removed = array_values(array_diff($current, $wanted));
@@ -216,9 +222,7 @@ class Cards
         if ($added) {
             $now = Carbon::now();
             $this->db->table('corkboard_assignees')->insert(array_map(fn ($id) => ['card_id' => $card->id, 'user_id' => $id, 'assigned_by' => $actor->id, 'created_at' => $now], $added));
-            foreach ($added as $id) {
-                $this->notify->watch($card, $id);
-            }
+            $this->notify->watch($card, $added);
             $ref = $this->log->record($board, $card->id, $actor, 'card_assigned', ['u' => $added]);
             $this->notify->send(Notification\AssignedBlueprint::class, $card, $actor, $added, $ref);
         }

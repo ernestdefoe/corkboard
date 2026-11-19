@@ -71,7 +71,9 @@ export default class BoardsPage extends Page {
         this.more = answer.more;
         this.page = page;
       })
-      .catch(() => {})
+      .catch(() => {
+        /* a quiet read: the list stays as it was, and the next load tries again */
+      })
       .finally(() => {
         this.loading = false;
         m.redraw();

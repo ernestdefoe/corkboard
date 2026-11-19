@@ -113,7 +113,10 @@ export default class BoardPage extends Page {
       onStart: (id) => {
         this.state.dragging = true;
         this.liftedId = id;
-        if (this.state.data?.push) call('POST', `/boards/${this.state.id}/moving`, { cardId: id }, undefined, true).catch(() => {});
+        if (this.state.data?.push)
+          call('POST', `/boards/${this.state.id}/moving`, { cardId: id }, undefined, true).catch(() => {
+            /* only a hint for teammates: a lost one changes nothing */
+          });
         m.redraw();
       },
       onMove: (target) => {

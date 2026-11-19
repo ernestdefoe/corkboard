@@ -6,6 +6,7 @@ use Flarum\Group\Group;
 use Flarum\User\Exception\PermissionDeniedException;
 use Flarum\User\User;
 use Illuminate\Database\ConnectionInterface;
+use Illuminate\Database\Eloquent\Collection;
 use WeakMap;
 
 /**
@@ -25,19 +26,16 @@ class Access
     public const RANK = ['viewer' => 1, 'commenter' => 2, 'editor' => 3, 'manager' => 4];
 
     /**
-     * Shared by every Access instance (the container makes a new one per class that asks), keyed
-     * by the actor object, which lives for one request.
+     * Roles worked out so far, keyed by the actor object (one instance: CorkboardServiceProvider),
+     * so they go when the actor does.
      *
-     * @var WeakMap<User, array<int, string|null>>|null
+     * @var WeakMap<User, array<int, string|null>>
      */
-    private static ?WeakMap $roles = null;
-
-    /** @var WeakMap<User, array<int, string|null>> */
     private WeakMap $memo;
 
     public function __construct(private readonly ConnectionInterface $db)
     {
-        $this->memo = self::$roles ??= new WeakMap();
+        $this->memo = new WeakMap();
     }
 
     /**
@@ -149,6 +147,32 @@ class Access
     public function canManageClosed(Board $board, User $actor): bool
     {
         return $this->role($board, $actor) === 'manager';
+    }
+
+    /**
+     * Which of these people may see the board: the same rule as Scope\BoardVisibility, worked out
+     * with one query for the team rows (load the users with their groups). Permissions are only
+     * checked for people the team rows don't already let in.
+     *
+     * @param Collection<int, User> $users
+     * @return Collection<int, User>
+     */
+    public function audience(Board $board, Collection $users): Collection
+    {
+        if ($board->deleted_at !== null || $users->isEmpty()) {
+            return new Collection();
+        }
+        $rows = $this->db->table('corkboard_members')->where('board_id', $board->id)->get(['user_id', 'group_id']);
+        $byName = array_flip($rows->pluck('user_id')->filter()->map(fn ($id) => (int) $id)->all());
+        $groups = $board->visibility === 'private' ? [] : $rows->pluck('group_id')->filter()->map(fn ($id) => (int) $id)->all();
+
+        return $users->filter(fn (User $u) => ! $u->isGuest() && (
+            (int) $board->owner_id === (int) $u->id
+            || isset($byName[(int) $u->id])
+            || array_intersect(self::groupIds($u), $groups)
+            || $u->hasPermission('corkboard.moderate')
+            || (in_array($board->visibility, ['public', 'members'], true) && $u->hasPermission('corkboard.view'))
+        ))->values();
     }
 
     /** Whether this person may start a board, and say why not. */

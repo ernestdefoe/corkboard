@@ -15,8 +15,6 @@ class Label extends AbstractModel
 {
     protected $table = 'corkboard_labels';
 
-    protected $guarded = [];
-
     protected $casts = ['position' => 'integer'];
 
     /** The six markers a new board starts with; the team names them. */

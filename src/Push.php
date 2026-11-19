@@ -4,8 +4,12 @@ namespace ErnestDefoe\Corkboard;
 
 use Flarum\Group\Group;
 use Flarum\User\User;
+use ErnestDefoe\Corkboard\Job\SendPush;
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Contracts\Queue\Queue;
+use Illuminate\Database\Connection;
 use Illuminate\Database\ConnectionInterface;
+use Psr\Log\LoggerInterface;
 
 /**
  * Tells open boards "you're behind" through flarum/realtime, when it's installed.
@@ -16,7 +20,7 @@ use Illuminate\Database\ConnectionInterface;
  * Until flarum/framework#5220 lets extensions authorise their own private channels, each push
  * goes to every team member's own `private-user=<id>` channel: for teams up to Settings::maxFanout
  * people (groups counted by their members). Bigger teams, and everyone not on the team, poll.
- * Sent after the response has gone out (php-fpm), so nobody waits on the realtime daemon.
+ * Sent from the queue (Job\SendPush) after the change commits, so nobody waits on the realtime daemon.
  */
 class Push
 {
@@ -29,17 +33,20 @@ class Push
         private readonly Container $container,
         private readonly ConnectionInterface $db,
         private readonly Settings $settings,
+        private readonly LoggerInterface $logger,
+        private readonly Queue $queue,
     ) {
     }
 
-    public static function available(Container $container): bool
+    public function available(): bool
     {
-        return class_exists(\Pusher\Pusher::class) && $container->bound(\Pusher\Pusher::class);
+        // flarum/realtime binds its Pusher client; bound() never autoloads the class.
+        return $this->container->bound(\Pusher\Pusher::class);
     }
 
     public function board(Board $board, ?User $actor, ?int $cardId): void
     {
-        if (! self::available($this->container)) {
+        if (! $this->available()) {
             return;
         }
         $this->pending[$board->id] = [$board->id, (int) $board->version, $actor?->id, $cardId];
@@ -48,33 +55,31 @@ class Push
             return;
         }
         $this->registered = true;
+        // Once the change is committed (at once outside a transaction), one event per board.
         $flush = function () {
             foreach ($this->pending as [$boardId, $version, $actorId, $cardId]) {
-                $this->send($boardId, ['t' => 'board', 'b' => $boardId, 'v' => $version, 'u' => $actorId, 'c' => $cardId]);
+                $this->queue->push(new SendPush($boardId, ['t' => 'board', 'b' => $boardId, 'v' => $version, 'u' => $actorId, 'c' => $cardId]));
             }
             $this->pending = [];
             $this->registered = false;
         };
-        if (PHP_SAPI === 'fpm-fcgi' && function_exists('fastcgi_finish_request')) {
-            register_shutdown_function(function () use ($flush) {
-                fastcgi_finish_request();
-                $flush();
-            });
-        } else {
-            $flush();
-        }
+        $this->db instanceof Connection ? $this->db->afterCommit($flush) : $flush();
     }
 
     /** "Ana is moving this": a short-lived hint, team only. */
     public function moving(Board $board, User $actor, ?int $cardId): void
     {
-        if (self::available($this->container)) {
-            $this->send($board->id, ['t' => 'moving', 'b' => $board->id, 'u' => $actor->id, 'n' => $actor->display_name, 'c' => $cardId]);
+        if ($this->available()) {
+            $this->queue->push(new SendPush($board->id, ['t' => 'moving', 'b' => $board->id, 'u' => $actor->id, 'n' => $actor->display_name, 'c' => $cardId]));
         }
     }
 
-    /** @param array<string, mixed> $event */
-    private function send(int $boardId, array $event): void
+    /**
+     * Sends one event to each team member's own channel (SendPush runs this from the queue).
+     *
+     * @param array<string, mixed> $event
+     */
+    public function deliver(int $boardId, array $event): void
     {
         try {
             $ids = $this->recipients($boardId);
@@ -85,8 +90,9 @@ class Push
             foreach (array_chunk($ids, 100) as $chunk) {
                 $pusher->trigger(array_map(fn (int $id) => 'private-user='.$id, $chunk), 'corkboard', $event);
             }
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
             // Realtime is down: every open board's poll still brings it.
+            $this->logger->warning('[corkboard] realtime push failed: '.$e->getMessage());
         }
     }
 

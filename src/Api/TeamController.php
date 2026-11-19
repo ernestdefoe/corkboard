@@ -2,6 +2,7 @@
 
 namespace ErnestDefoe\Corkboard\Api;
 
+use ErnestDefoe\Corkboard\Extensions;
 use ErnestDefoe\Corkboard\Member;
 use ErnestDefoe\Corkboard\Presenter;
 use ErnestDefoe\Corkboard\Team;
@@ -24,6 +25,7 @@ class TeamController extends Controller
         private readonly Team $team,
         private readonly Presenter $presenter,
         private readonly ActivityPresenter $activity,
+        private readonly Extensions $extensions,
     ) {
     }
 
@@ -67,7 +69,8 @@ class TeamController extends Controller
     /** @return array<string, mixed> */
     protected function people(ServerRequestInterface $request, User $actor): array
     {
-        $actor->assertRegistered();
+        // Core's own rule for finding people by name.
+        $actor->assertCan('searchUsers');
         $q = trim((string) ($request->getQueryParams()['q'] ?? ''));
         if ($q === '') {
             return ['users' => [], 'groups' => []];
@@ -75,9 +78,9 @@ class TeamController extends Controller
         $like = addcslashes($q, '%_\\').'%';
         $users = User::whereVisibleTo($actor)
             ->where(function ($w) use ($like) {
-                $w->where('username', 'like', $like);
-                if (resolve(\Flarum\Extension\ExtensionManager::class)->isEnabled('flarum-nicknames')) {
-                    $w->orWhere('nickname', 'like', $like);
+                $w->whereLike('username', $like);
+                if ($this->extensions->enabled('flarum-nicknames')) {
+                    $w->orWhereLike('nickname', $like);
                 }
             })
             ->orderBy('username')->limit(8)->get();
@@ -85,7 +88,7 @@ class TeamController extends Controller
         $groups = [];
         if (! empty($request->getQueryParams()['groups'])) {
             $groups = Group::query()->where('id', '<>', Group::GUEST_ID)
-                ->where(fn ($w) => $w->where('name_singular', 'like', '%'.addcslashes($q, '%_\\').'%')->orWhere('name_plural', 'like', '%'.addcslashes($q, '%_\\').'%'))
+                ->where(fn ($w) => $w->whereLike('name_singular', $like)->orWhereLike('name_plural', $like))
                 ->where('is_hidden', false)
                 ->limit(5)->get()
                 ->map(fn (Group $g) => ['id' => $g->id, 'name' => $g->name_plural, 'color' => $g->color, 'icon' => $g->icon])->values()->all();

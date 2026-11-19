@@ -11,6 +11,7 @@ use Flarum\Locale\TranslatorInterface;
 use Flarum\Notification\NotificationMailer;
 use Flarum\User\User;
 use Illuminate\Database\ConnectionInterface;
+use Psr\Log\LoggerInterface;
 
 /**
  * Sends what's waiting in the outbox: one email per person, listing every update since the last
@@ -24,6 +25,7 @@ class Outbox
         private readonly NotificationMailer $mailer,
         private readonly TranslatorInterface $translator,
         private readonly UrlGenerator $url,
+        private readonly LoggerInterface $logger,
     ) {
     }
 
@@ -56,7 +58,7 @@ class Outbox
                 $this->mailer->send(new DigestBlueprint($lines, count($boards) === 1 ? $boards[0] : null), $user);
                 $sent++;
             } catch (\Throwable $e) {
-                resolve('log')->warning('[corkboard] digest to '.$user->id.' failed: '.$e->getMessage());
+                $this->logger->warning('[corkboard] digest to '.$user->id.' failed: '.$e->getMessage());
             }
         }
 

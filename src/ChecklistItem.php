@@ -16,8 +16,6 @@ class ChecklistItem extends AbstractModel
 {
     protected $table = 'corkboard_checklist';
 
-    protected $guarded = [];
-
     protected $casts = ['is_done' => 'boolean', 'position' => 'integer'];
 
     public $timestamps = true;

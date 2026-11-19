@@ -20,7 +20,5 @@ class Member extends AbstractModel
 
     protected $table = 'corkboard_members';
 
-    protected $guarded = [];
-
     public $timestamps = false;
 }

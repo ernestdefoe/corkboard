@@ -49,14 +49,15 @@ class DueCommand extends Command
      */
     private function notifyAll(iterable $cards, ConnectionInterface $db, Notify $notify, string $blueprint, string $stamp, int &$sent): void
     {
-        $cards = collect($cards);
+        $cards = collect($cards)->filter(fn (Card $card) => $card->board->deleted_at === null);
+        if ($cards->isEmpty()) {
+            return;
+        }
+        // Stamped first, in one update: a failed send isn't retried every hour.
+        $db->table('corkboard_cards')->whereIn('id', $cards->pluck('id'))->update([$stamp => Carbon::now()]);
         $assignees = $db->table('corkboard_assignees')->whereIn('card_id', $cards->pluck('id'))->get(['card_id', 'user_id'])->groupBy('card_id');
         foreach ($cards as $card) {
-            if ($card->board->deleted_at !== null) {
-                continue;
-            }
             $people = ($assignees[$card->id] ?? collect())->pluck('user_id')->all() ?: [$card->user_id];
-            $db->table('corkboard_cards')->where('id', $card->id)->update([$stamp => Carbon::now()]);
             $notify->send($blueprint, $card, null, $people, (int) $card->due_at->timestamp);
             $sent++;
         }

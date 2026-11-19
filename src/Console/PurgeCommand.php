@@ -4,6 +4,7 @@ namespace ErnestDefoe\Corkboard\Console;
 
 use Carbon\Carbon;
 use Illuminate\Console\Command;
+use ErnestDefoe\Corkboard\Counters;
 use Illuminate\Database\ConnectionInterface;
 
 /**
@@ -16,25 +17,22 @@ class PurgeCommand extends Command
 
     protected $description = 'Remove deleted Corkboard boards after 30 days and archive old done cards.';
 
-    public function handle(ConnectionInterface $db): int
+    public function handle(ConnectionInterface $db, Counters $counters): int
     {
         $gone = $db->table('corkboard_boards')->whereNotNull('deleted_at')->where('deleted_at', '<', Carbon::now()->subDays(30))->delete();
 
+        // Done cards past their column's auto-archive age: one update per distinct age (a handful),
+        // then one recount for every board that lost cards.
         $archived = 0;
-        foreach ($db->table('corkboard_columns')->whereNotNull('auto_archive_days')->get(['id', 'board_id', 'auto_archive_days']) as $column) {
-            $n = $db->table('corkboard_cards')->where('column_id', $column->id)->whereNull('archived_at')->whereNotNull('completed_at')
-                ->where('completed_at', '<', Carbon::now()->subDays((int) $column->auto_archive_days))
-                ->update(['archived_at' => Carbon::now()]);
-            if ($n) {
-                $archived += $n;
-                $cards = $db->table('corkboard_cards')->where('board_id', $column->board_id)->whereNull('archived_at');
-                $db->table('corkboard_boards')->where('id', $column->board_id)->update([
-                    'card_count' => (clone $cards)->count(),
-                    'done_count' => (clone $cards)->whereNotNull('completed_at')->count(),
-                ]);
-                $db->table('corkboard_boards')->where('id', $column->board_id)->increment('version');
-            }
+        $boards = [];
+        $columns = $db->table('corkboard_columns')->whereNotNull('auto_archive_days')->get(['id', 'auto_archive_days'])->groupBy('auto_archive_days');
+        foreach ($columns as $days => $group) {
+            $due = $db->table('corkboard_cards')->whereIn('column_id', $group->pluck('id'))->whereNull('archived_at')->whereNotNull('completed_at')
+                ->where('completed_at', '<', Carbon::now()->subDays((int) $days));
+            $boards = array_merge($boards, (clone $due)->distinct()->pluck('board_id')->map(fn ($id) => (int) $id)->all());
+            $archived += $due->update(['archived_at' => Carbon::now()]);
         }
+        $counters->boards(array_values(array_unique($boards)));
 
         $db->table('corkboard_activity')->where('created_at', '<', Carbon::now()->subYears(2))->delete();
         $db->table('corkboard_outbox')->where('created_at', '<', Carbon::now()->subDays(2))->delete();

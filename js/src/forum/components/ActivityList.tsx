@@ -41,7 +41,9 @@ export default class ActivityList extends Component<{ state: BoardState; cardId?
         Object.assign(this.columns, page.columns);
         this.more = page.more;
       })
-      .catch(() => {})
+      .catch(() => {
+        /* a quiet read: the list stays as it was, and the next load tries again */
+      })
       .finally(() => {
         this.loading = false;
         m.redraw();

@@ -30,7 +30,7 @@ class Settings
     /** How long before a due date the "due soon" alert goes out. */
     public function dueSoonHours(): int
     {
-        return max(1, min(24 * 7, (int) ($this->settings->get('ernestdefoe-corkboard.due_soon_hours') ?: 24)));
+        return max(1, min(24 * 7, (int) $this->settings->get('ernestdefoe-corkboard.due_soon_hours')));
     }
 
     public function minPosts(): int
@@ -42,5 +42,13 @@ class Settings
     public function maxFanout(): int
     {
         return 50;
+    }
+
+    /** From now on discussions carry the board chip (until then it costs no query). */
+    public function markLinked(): void
+    {
+        if (! $this->settings->get('ernestdefoe-corkboard.linked')) {
+            $this->settings->set('ernestdefoe-corkboard.linked', '1');
+        }
     }
 }
