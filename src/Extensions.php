@@ -26,6 +26,11 @@ class Extensions
         return $this->enabled('flarum-tags');
     }
 
+    public function realtime(): bool
+    {
+        return $this->enabled('flarum-realtime');
+    }
+
     public function projects(): bool
     {
         return $this->enabled('ernestdefoe-projects');

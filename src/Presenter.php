@@ -47,6 +47,7 @@ class Presenter
 
         $more = [];
         if ($big) {
+            // Open cards per column in one grouped count, for the "N more" of a big column.
             $counts = $this->db->table('corkboard_cards')->where('board_id', $board->id)->whereNull('archived_at')
                 ->groupBy('column_id')->selectRaw('column_id, count(*) as n')->pluck('n', 'column_id');
             foreach ($columns as $column) {
@@ -80,7 +81,7 @@ class Presenter
             'members' => $members->map(fn (Member $m) => ['id' => $m->id, 'userId' => $m->user_id, 'groupId' => $m->group_id, 'role' => $m->role])->values()->all(),
             'cards' => $slim,
             'users' => $this->users($userIds),
-            'groups' => $groupIds ? $this->groups($groupIds) : (object) [],
+            'groups' => $groupIds ? $this->groups($groupIds, $actor) : (object) [],
         ];
     }
 
@@ -181,6 +182,20 @@ class Presenter
         return [$out, $users];
     }
 
+    /** @return array<string, mixed> a written card as the board draws it, and its board's version and counts */
+    public function written(Card $card): array
+    {
+        [$slim, $users] = $this->slim(collect([(object) $card->getAttributes()]));
+
+        return [
+            'card' => $slim[0],
+            'users' => $this->users($users),
+            'version' => (int) $card->board->version,
+            'cardCount' => $card->board->card_count,
+            'doneCount' => $card->board->done_count,
+        ];
+    }
+
     /** @return array<string, mixed> everything a card shows when it opens */
     public function card(Card $card, User $actor, ServerRequestInterface $request): array
     {
@@ -221,21 +236,35 @@ class Presenter
             ->orderByDesc('id')->limit(21)->get();
         $more = $rows->count() > 20;
         $rows = $rows->take(20);
-        $manage = $this->access->can($card->board, $actor, 'manager');
 
         return [
-            'items' => $rows->map(fn (Comment $c) => [
-                'id' => $c->id,
-                'userId' => $c->user_id,
-                'html' => $this->formatter->render($c->content, null, $request),
-                'source' => ! $actor->isGuest() && $c->user_id === $actor->id ? $this->formatter->unparse($c->content, null) : null,
-                'createdAt' => $c->created_at?->toIso8601String(),
-                'editedAt' => $c->edited_at?->toIso8601String(),
-                'canEdit' => ! $actor->isGuest() && $c->user_id === $actor->id && ! $card->board->isReadOnly(),
-                'canDelete' => ! $card->board->isReadOnly() && ($manage || (! $actor->isGuest() && $c->user_id === $actor->id)),
-            ])->values()->all(),
+            'items' => $rows->map(fn (Comment $c) => $this->comment($c, $card->board, $actor, $request))->values()->all(),
             'more' => $more,
             'userIds' => $rows->pluck('user_id')->filter()->map(fn ($id) => (int) $id)->values()->all(),
+        ];
+    }
+
+    /**
+     * One comment as the card shows it, and what this viewer may do with it: the one place both
+     * the card's first page and the corkboard-comments resource build it.
+     *
+     * @return array{id: int, userId: int|null, html: string, source: string|null, createdAt: string|null, editedAt: string|null, canEdit: bool, canDelete: bool}
+     */
+    public function comment(Comment $comment, Board $board, User $actor, ServerRequestInterface $request): array
+    {
+        $mine = ! $actor->isGuest() && $comment->user_id === $actor->id;
+        $open = ! $board->isReadOnly();
+
+        return [
+            'id' => $comment->id,
+            'userId' => $comment->user_id,
+            'html' => $this->formatter->render($comment->content, null, $request),
+            // The text as typed, for the author's editor.
+            'source' => $mine ? $this->formatter->unparse($comment->content, null) : null,
+            'createdAt' => $comment->created_at?->toIso8601String(),
+            'editedAt' => $comment->edited_at?->toIso8601String(),
+            'canEdit' => $mine && $open,
+            'canDelete' => $open && ($mine || $this->access->can($board, $actor, 'manager')),
         ];
     }
 
@@ -298,14 +327,23 @@ class Presenter
     }
 
     /**
+     * A team's groups. A hidden group's name, look and size are only for moderators (and whoever
+     * may see hidden groups): everyone else gets the row with no name ("A hidden group").
+     *
      * @param array<int|null> $ids
      * @return array<int, array<string, mixed>>
      */
-    public function groups(array $ids): array
+    public function groups(array $ids, User $actor): array
     {
         $out = [];
+        $seesHidden = $actor->hasPermission('corkboard.moderate') || $actor->hasPermission('viewHiddenGroups');
+        // Members per group in one grouped count.
         $counts = $this->db->table('group_user')->whereIn('group_id', $ids)->groupBy('group_id')->selectRaw('group_id, count(*) as n')->pluck('n', 'group_id');
         foreach (Group::query()->whereIn('id', $ids)->get() as $group) {
+            if ($group->is_hidden && ! $seesHidden) {
+                $out[(int) $group->id] = ['id' => $group->id, 'name' => null, 'color' => null, 'icon' => null, 'count' => null, 'hidden' => true];
+                continue;
+            }
             $out[(int) $group->id] = [
                 'id' => $group->id,
                 'name' => $group->name_plural,
@@ -313,6 +351,7 @@ class Presenter
                 'icon' => $group->icon,
                 // Members and Guests aren't stored per person: no count.
                 'count' => in_array((int) $group->id, [Group::GUEST_ID, Group::MEMBER_ID], true) ? null : (int) ($counts[$group->id] ?? 0),
+                'hidden' => (bool) $group->is_hidden,
             ];
         }
 

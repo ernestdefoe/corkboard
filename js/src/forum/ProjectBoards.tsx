@@ -3,7 +3,7 @@ import Component from 'flarum/common/Component';
 import Button from 'flarum/common/components/Button';
 import Icon from 'flarum/common/components/Icon';
 import Link from 'flarum/common/components/Link';
-import { boardUrl, call, t, tx, ui } from './util';
+import { boardList, boardUrl, t, tx, ui } from './util';
 
 interface Tile {
   id: number;
@@ -25,7 +25,7 @@ export default class ProjectBoards extends Component<{ project: any }> {
 
   oninit(vnode: any) {
     super.oninit(vnode);
-    call('GET', '/boards', undefined, { tab: 'all', project: this.attrs.project.id }, true)
+    boardList({ tab: 'all', project: this.attrs.project.id })
       .then((answer) => (this.boards = answer.boards))
       .catch(() => (this.boards = []))
       .finally(() => m.redraw());

@@ -110,91 +110,122 @@ class Cards
         });
     }
 
-    /** @param array<string, mixed> $in */
+    /**
+     * One change after another, in this order (a move comes after the fields, so a card moved into
+     * a done column with new details is finished with them).
+     *
+     * @param array<string, mixed> $in
+     */
     private function apply(Card $card, User $actor, array $in): void
     {
-        $board = $card->board;
+        $has = fn (string $key) => array_key_exists($key, $in);
 
-        if (array_key_exists('description', $in)) {
-            $text = trim((string) $in['description']);
-            if (mb_strlen($text) > 20000) {
-                throw Refusal::because('too_long', 'description');
-            }
-            $before = Notify::mentioned($card->description);
-            $card->description = $text === '' ? null : $this->formatter->parse($text, null, $actor);
-            $card->save();
-            $ref = $this->log->record($board, $card->id, $actor, 'card_described');
-            $this->notify->send(Notification\MentionedBlueprint::class, $card, $actor, array_diff(Notify::mentioned($card->description), $before), $ref);
+        $has('description') && $this->describe($card, $actor, (string) $in['description']);
+        $has('priority') && $this->prioritise($card, $actor, $in['priority']);
+        ($has('dueAt') || $has('dueAllDay')) && $this->due($card, $actor, $in);
+        $has('coverColor') && $this->cover($card, $actor, $in['coverColor']);
+        $has('labelIds') && $this->label($card, $actor, array_map('intval', (array) $in['labelIds']));
+        $has('assigneeIds') && $this->assign($card, $actor, array_map('intval', (array) $in['assigneeIds']));
+        $has('discussionId') && $this->link($card, $actor, $in['discussionId'] ? (int) $in['discussionId'] : null);
+        if ($has('columnId')) {
+            $this->move($card, $actor, $this->column($card->board, $in['columnId']), $has('afterId') ? ($in['afterId'] === null ? null : (int) $in['afterId']) : false);
         }
-
-        if (array_key_exists('priority', $in) && in_array($in['priority'], Card::PRIORITIES, true) && $in['priority'] !== $card->priority) {
-            $card->priority = $in['priority'];
-            $card->save();
-            $this->log->record($board, $card->id, $actor, 'card_priority', ['p' => $card->priority]);
-        }
-
-        if (array_key_exists('dueAt', $in) || array_key_exists('dueAllDay', $in)) {
-            $due = array_key_exists('dueAt', $in) ? ($in['dueAt'] ? Carbon::parse((string) $in['dueAt'])->utc() : null) : $card->due_at;
-            $allDay = array_key_exists('dueAllDay', $in) ? (bool) $in['dueAllDay'] : $card->due_all_day;
-            if ($due?->toIso8601String() !== $card->due_at?->toIso8601String() || $allDay !== $card->due_all_day) {
-                $card->due_at = $due;
-                $card->due_all_day = $due !== null && $allDay;
-                $card->due_notified_at = null;
-                $card->overdue_notified_at = null;
-                $card->save();
-                $this->log->record($board, $card->id, $actor, 'card_due', ['d' => $due?->toIso8601String()]);
-            }
-        }
-
-        if (array_key_exists('coverColor', $in)) {
-            $color = $in['coverColor'];
-            $card->cover_color = is_string($color) && preg_match('/^#[0-9a-fA-F]{6}$/', $color) ? $color : null;
-            $card->save();
-            $this->log->touch($board, $actor, $card->id);
-        }
-
-        if (array_key_exists('labelIds', $in)) {
-            $ids = Label::query()->where('board_id', $board->id)->whereIn('id', array_map('intval', (array) $in['labelIds']))->pluck('id')->all();
-            $this->db->table('corkboard_card_label')->where('card_id', $card->id)->delete();
-            $this->db->table('corkboard_card_label')->insert(array_map(fn ($id) => ['card_id' => $card->id, 'label_id' => $id], $ids));
-            $this->log->record($board, $card->id, $actor, 'card_labels', ['l' => $ids]);
-        }
-
-        if (array_key_exists('assigneeIds', $in)) {
-            $this->assign($card, $actor, array_map('intval', (array) $in['assigneeIds']));
-        }
-
-        if (array_key_exists('discussionId', $in)) {
-            $id = $in['discussionId'] ? (int) $in['discussionId'] : null;
-            if ($id !== null && ! Discussion::whereVisibleTo($actor)->whereKey($id)->exists()) {
-                throw Refusal::because('discussion', 'discussionId');
-            }
-            $card->discussion_id = $id;
-            $card->save();
-            $id && $this->settings->markLinked();
-            $this->log->record($board, $card->id, $actor, $id ? 'card_linked' : 'card_unlinked', $id ? ['d' => $id] : []);
-        }
-
-        if (array_key_exists('columnId', $in)) {
-            $this->move($card, $actor, $this->column($board, $in['columnId']), array_key_exists('afterId', $in) ? ($in['afterId'] === null ? null : (int) $in['afterId']) : false);
-        }
-
-        if (array_key_exists('completed', $in)) {
+        if ($has('completed')) {
             (bool) $in['completed'] ? $this->complete($card, $actor) : $this->reopen($card, $actor);
         }
+        $has('archived') && $this->archive($card, $actor, (bool) $in['archived']);
+    }
 
-        if (array_key_exists('archived', $in)) {
-            $archive = (bool) $in['archived'];
-            if ($archive !== ($card->archived_at !== null)) {
-                $card->archived_at = $archive ? Carbon::now() : null;
-                if (! $archive) {
-                    // Back at the bottom of its column.
-                    $card->position = $this->positions->last('corkboard_cards', 'column_id', $card->column_id);
-                }
-                $card->save();
-                $this->log->record($board, $card->id, $actor, $archive ? 'card_archived' : 'card_restored');
-            }
+    private function describe(Card $card, User $actor, string $text): void
+    {
+        $text = trim($text);
+        if (mb_strlen($text) > 20000) {
+            throw Refusal::because('too_long', 'description');
         }
+        $before = Notify::mentioned($card->description);
+        $card->description = $text === '' ? null : $this->formatter->parse($text, null, $actor);
+        $card->save();
+        $ref = $this->log->record($card->board, $card->id, $actor, 'card_described');
+        $this->notify->send(Notification\MentionedBlueprint::class, $card, $actor, array_diff(Notify::mentioned($card->description), $before), $ref);
+    }
+
+    private function prioritise(Card $card, User $actor, mixed $priority): void
+    {
+        if (in_array($priority, Card::PRIORITIES, true) && $priority !== $card->priority) {
+            $card->priority = $priority;
+            $card->save();
+            $this->log->record($card->board, $card->id, $actor, 'card_priority', ['p' => $card->priority]);
+        }
+    }
+
+    /** @param array<string, mixed> $in dueAt and/or dueAllDay */
+    private function due(Card $card, User $actor, array $in): void
+    {
+        $due = array_key_exists('dueAt', $in) ? self::date($in['dueAt']) : $card->due_at;
+        $allDay = array_key_exists('dueAllDay', $in) ? (bool) $in['dueAllDay'] : $card->due_all_day;
+        if ($due?->toIso8601String() === $card->due_at?->toIso8601String() && $allDay === $card->due_all_day) {
+            return;
+        }
+        $card->due_at = $due;
+        $card->due_all_day = $due !== null && $allDay;
+        $card->due_notified_at = null;
+        $card->overdue_notified_at = null;
+        $card->save();
+        $this->log->record($card->board, $card->id, $actor, 'card_due', ['d' => $due?->toIso8601String()]);
+    }
+
+    /** A due date as sent (the resource checks it; this guards every other caller). */
+    private static function date(mixed $value): ?Carbon
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        try {
+            return Carbon::parse((string) $value)->utc();
+        } catch (\Carbon\Exceptions\InvalidFormatException) {
+            throw Refusal::because('due', 'dueAt');
+        }
+    }
+
+    private function cover(Card $card, User $actor, mixed $color): void
+    {
+        $card->cover_color = Input::color($color);
+        $card->save();
+        $this->log->touch($card->board, $actor, $card->id);
+    }
+
+    /** @param list<int> $ids only the board's own labels count */
+    private function label(Card $card, User $actor, array $ids): void
+    {
+        $ids = Label::query()->where('board_id', $card->board_id)->whereIn('id', $ids)->pluck('id')->all();
+        $this->db->table('corkboard_card_label')->where('card_id', $card->id)->delete();
+        $this->db->table('corkboard_card_label')->insert(array_map(fn ($id) => ['card_id' => $card->id, 'label_id' => $id], $ids));
+        $this->log->record($card->board, $card->id, $actor, 'card_labels', ['l' => $ids]);
+    }
+
+    private function link(Card $card, User $actor, ?int $id): void
+    {
+        if ($id !== null && ! Discussion::whereVisibleTo($actor)->whereKey($id)->exists()) {
+            throw Refusal::because('discussion', 'discussionId');
+        }
+        $card->discussion_id = $id;
+        $card->save();
+        $id && $this->settings->markLinked();
+        $this->log->record($card->board, $card->id, $actor, $id ? 'card_linked' : 'card_unlinked', $id ? ['d' => $id] : []);
+    }
+
+    private function archive(Card $card, User $actor, bool $archive): void
+    {
+        if ($archive === ($card->archived_at !== null)) {
+            return;
+        }
+        $card->archived_at = $archive ? Carbon::now() : null;
+        if (! $archive) {
+            // Back at the bottom of its column.
+            $card->position = $this->positions->last('corkboard_cards', 'column_id', $card->column_id);
+        }
+        $card->save();
+        $this->log->record($card->board, $card->id, $actor, $archive ? 'card_archived' : 'card_restored');
     }
 
     /** @param list<int> $ids */
@@ -371,12 +402,7 @@ class Cards
 
     public function title(mixed $value): string
     {
-        $title = trim(preg_replace('/\s+/u', ' ', (string) $value) ?? '');
-        if ($title === '' || mb_strlen($title) > 160) {
-            throw Refusal::because('card_title', 'title');
-        }
-
-        return $title;
+        return Input::line($value, 160, 'card_title');
     }
 
     /**

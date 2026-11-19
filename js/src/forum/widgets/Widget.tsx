@@ -5,7 +5,7 @@ import Link from 'flarum/common/components/Link';
 import LoadingIndicator from 'flarum/common/components/LoadingIndicator';
 import classList from 'flarum/common/utils/classList';
 import type Mithril from 'mithril';
-import { boardUrl, due, t, tx } from '../util';
+import { boardUrl, call, cardList, due, t, tx, type ListedCard } from '../util';
 import { fetchWidget } from './data';
 
 export type Kind = 'mine' | 'due' | 'progress';
@@ -43,12 +43,14 @@ export default class CorkboardWidget extends Component<WidgetAttrs> {
   }
 
   mine(s: Record<string, any>): Mithril.Children {
-    const { data, loading } = fetchWidget('/my-cards', { limit: Math.max(1, Math.min(10, Number(s.count) || 5)), owned: s.owned ? 1 : undefined });
+    const limit = Math.max(1, Math.min(10, Number(s.count) || 5));
+    const filter = { mine: 1, owned: s.owned ? 1 : undefined };
+    const { data, loading } = fetchWidget(`mine:${limit}:${filter.owned || 0}`, () => cardList(filter, limit));
     if (loading) return <LoadingIndicator size="small" />;
     if (!data || data.error) return null;
     return [
       data.cards.length ? (
-        <ul className="CorkboardWidget-list">{data.cards.map((c: any) => this.row(c, `${c.board} · ${c.column}`))}</ul>
+        <ul className="CorkboardWidget-list">{data.cards.map((c: ListedCard) => this.row(c, `${c.boardTitle} · ${c.columnTitle}`))}</ul>
       ) : (
         <p className="CorkboardWidget-empty">{t('widget.mine_empty')}</p>
       ),
@@ -60,19 +62,17 @@ export default class CorkboardWidget extends Component<WidgetAttrs> {
 
   due(s: Record<string, any>): Mithril.Children {
     const board = String(s.board || '').replace(/\D/g, '');
-    const { data, loading } = fetchWidget('/due-soon', {
-      days: Number(s.days) || 3,
-      limit: Math.max(1, Math.min(10, Number(s.count) || 5)),
-      board: board || undefined,
-    });
+    const limit = Math.max(1, Math.min(10, Number(s.count) || 5));
+    const filter = { dueWithin: Number(s.days) || 3, board: board || undefined };
+    const { data, loading } = fetchWidget(`due:${filter.dueWithin}:${board}:${limit}`, () => cardList(filter, limit));
     if (loading) return <LoadingIndicator size="small" />;
     if (!data || data.error) return null;
     if (!data.cards.length) return <p className="CorkboardWidget-empty">{t('widget.due_empty')}</p>;
     return (
       <ul className="CorkboardWidget-list">
-        {data.cards.map((c: any) => {
-          const names = (c.assigneeIds || []).map((id: number) => data.users[id]?.name).filter(Boolean);
-          return this.row(c, [board ? '' : c.board, names.length ? names.join(', ') : ''].filter(Boolean).join(' · '));
+        {data.cards.map((c: ListedCard) => {
+          const names = c.people.map((p) => p.name);
+          return this.row(c, [board ? '' : c.boardTitle, names.join(', ')].filter(Boolean).join(' · '));
         })}
       </ul>
     );
@@ -84,7 +84,7 @@ export default class CorkboardWidget extends Component<WidgetAttrs> {
       return app.session.user && app.forum.attribute('corkboardCanModerate') ? (
         <p className="CorkboardWidget-empty">{t('widget.progress_pick')}</p>
       ) : null;
-    const { data, loading } = fetchWidget(`/progress/${id}`, {});
+    const { data, loading } = fetchWidget(`progress:${id}`, () => call('GET', `/progress/${id}`, undefined, undefined, true));
     if (loading) return <LoadingIndicator size="small" />;
     if (!data || data.error) return null;
     const total = data.columns.reduce((n: number, c: any) => n + c.count, 0);

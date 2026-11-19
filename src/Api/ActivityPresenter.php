@@ -4,6 +4,7 @@ namespace ErnestDefoe\Corkboard\Api;
 
 use ErnestDefoe\Corkboard\Board;
 use ErnestDefoe\Corkboard\Presenter;
+use Flarum\User\User;
 use Illuminate\Database\ConnectionInterface;
 
 /**
@@ -19,7 +20,7 @@ class ActivityPresenter
     }
 
     /** @return array<string, mixed> */
-    public function page(Board $board, ?int $cardId, ?int $before): array
+    public function page(Board $board, ?int $cardId, ?int $before, User $actor): array
     {
         $rows = $this->db->table('corkboard_activity')->where('board_id', $board->id)
             ->when($cardId, fn ($q) => $q->where('card_id', $cardId))
@@ -57,7 +58,7 @@ class ActivityPresenter
             'items' => $items,
             'more' => $more,
             'users' => $this->presenter->users($users),
-            'groups' => $groups ? $this->presenter->groups($groups) : (object) [],
+            'groups' => $groups ? $this->presenter->groups($groups, $actor) : (object) [],
             'cards' => $cardIds ? $this->db->table('corkboard_cards')->where('board_id', $board->id)->whereIn('id', $cardIds)->pluck('title', 'id') : (object) [],
             'columns' => $this->db->table('corkboard_columns')->where('board_id', $board->id)->pluck('title', 'id'),
         ];

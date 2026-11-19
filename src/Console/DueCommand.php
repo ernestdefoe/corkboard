@@ -56,10 +56,13 @@ class DueCommand extends Command
         // Stamped first, in one update: a failed send isn't retried every hour.
         $db->table('corkboard_cards')->whereIn('id', $cards->pluck('id'))->update([$stamp => Carbon::now()]);
         $assignees = $db->table('corkboard_assignees')->whereIn('card_id', $cards->pluck('id'))->get(['card_id', 'user_id'])->groupBy('card_id');
+        $sends = [];
         foreach ($cards as $card) {
-            $people = ($assignees[$card->id] ?? collect())->pluck('user_id')->all() ?: [$card->user_id];
-            $notify->send($blueprint, $card, null, $people, (int) $card->due_at->timestamp);
-            $sent++;
+            $people = ($assignees[$card->id] ?? collect())->pluck('user_id')->map(fn ($id) => (int) $id)->all() ?: [$card->user_id];
+            $sends[] = [$card, $people, (int) $card->due_at->timestamp];
         }
+        // Everyone named and every board's team rows read once for the chunk.
+        $notify->sendEach($blueprint, $sends);
+        $sent += count($sends);
     }
 }

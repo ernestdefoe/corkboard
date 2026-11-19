@@ -66,30 +66,82 @@ class CorkboardTest extends TestCase
         ]);
     }
 
-    /** @return array{int, array<string, mixed>|null, string} */
-    private function call(string $method, string $path, ?int $as, array $body = []): array
+    /**
+     * Any API request; $path starts after /api and may carry a query string.
+     *
+     * @param array<string, mixed>|null $body
+     * @return array{int, array<string, mixed>|null, string}
+     */
+    private function api(string $method, string $path, ?int $as, ?array $body = null): array
     {
         $options = $as ? ['authenticatedAs' => $as] : [];
         [$route, $query] = array_pad(explode('?', $path, 2), 2, '');
         if ($method !== 'GET') {
-            $options['json'] = $body;
+            $options['json'] = $body ?? [];
         }
         parse_str($query, $params);
-        $response = $this->send($this->request($method, '/api/corkboard'.$route, $options)->withQueryParams($params));
+        // A guest's write carries no session token: let it through to what decides (the endpoint).
+        $response = $this->send($this->request($method, '/api'.$route, $options)->withQueryParams($params)->withAttribute('bypassCsrfToken', true));
         $raw = (string) $response->getBody();
 
         return [$response->getStatusCode(), json_decode($raw, true), $raw];
     }
 
-    /** @return list<int> */
-    private function visibleBoards(?int $as): array
+    /**
+     * Corkboard's own actions (clone, pin, the version poll, widgets, the feed), under /api/corkboard.
+     *
+     * @param array<string, mixed> $body
+     * @return array{int, array<string, mixed>|null, string}
+     */
+    private function call(string $method, string $path, ?int $as, array $body = []): array
     {
-        [$status, $json] = $this->call('GET', '/boards?tab=all', $as);
-        $this->assertSame(200, $status);
-        $ids = array_map(fn ($b) => $b['id'], $json['boards']);
+        return $this->api($method, '/corkboard'.$path, $as, $body);
+    }
+
+    /**
+     * A JSON:API write to corkboard-<type> (a create has no id). Answers with the status and the
+     * write's `view`, what the page redraws from.
+     *
+     * @param array<string, mixed> $attributes
+     * @return array{int, array<string, mixed>|null, string}
+     */
+    private function write(string $method, string $type, ?int $id, ?int $as, array $attributes = []): array
+    {
+        $data = ['type' => "corkboard-$type", 'attributes' => $attributes] + ($id ? ['id' => (string) $id] : []);
+        [$status, $json, $raw] = $this->api($method, "/corkboard-$type".($id ? "/$id" : ''), $as, $method === 'DELETE' ? null : ['data' => $data]);
+
+        return [$status, $json['data']['attributes']['view'] ?? null, $raw];
+    }
+
+    /**
+     * A JSON:API read of corkboard-<type>; $rest is "/{id}" or "?filter[…]=…".
+     *
+     * @return array{int, array<string, mixed>|null, string}
+     */
+    private function read(string $type, string $rest, ?int $as): array
+    {
+        return $this->api('GET', "/corkboard-$type$rest", $as);
+    }
+
+    /**
+     * The ids a list shows.
+     *
+     * @return list<int>
+     */
+    private function ids(string $type, string $filter, ?int $as): array
+    {
+        [$status, $json, $raw] = $this->read($type, $filter, $as);
+        $this->assertSame(200, $status, $raw);
+        $ids = array_map(fn ($item) => (int) $item['id'], $json['data']);
         sort($ids);
 
         return $ids;
+    }
+
+    /** @return list<int> */
+    private function visibleBoards(?int $as): array
+    {
+        return $this->ids('boards', '?filter[tab]=all', $as);
     }
 
     #[Test]
@@ -101,7 +153,7 @@ class CorkboardTest extends TestCase
         $this->assertSame([1, 2, 3, 4], $this->visibleBoards(4));
         // Volunteers are on board 2 as a group; board 3 is private, where a group row counts for nothing.
         $this->assertSame([1, 2, 4], $this->visibleBoards(5));
-        [$status] = $this->call('GET', '/boards/3', 5);
+        [$status] = $this->read('boards', '/3', 5);
         $this->assertSame(404, $status);
         $this->assertSame([1, 2, 3, 4], $this->visibleBoards(6));
     }
@@ -110,8 +162,13 @@ class CorkboardTest extends TestCase
     public function nothing_of_a_hidden_board_leaks_anywhere(): void
     {
         foreach ([null, 2] as $viewer) {
-            foreach (['/boards?tab=all', '/my-cards', '/due-soon', '/cards/200', '/cards/300', '/boards/2', '/boards/2/version', '/boards/2/activity', '/progress/2', '/cards/200/comments'] as $path) {
-                [, , $raw] = $this->call('GET', $path, $viewer);
+            $paths = [
+                '/corkboard-boards?filter[tab]=all', '/corkboard/my-cards', '/corkboard/due-soon', '/corkboard-cards/200', '/corkboard-cards/300',
+                '/corkboard-boards/2', '/corkboard/boards/2/version', '/corkboard/boards/2/activity', '/corkboard/progress/2', '/corkboard-comments?filter[card]=200',
+                '/corkboard-cards', '/corkboard-cards?filter[board]=2', '/corkboard/boards/2/cards?column=21', '/corkboard/cards/200/activity',
+            ];
+            foreach ($paths as $path) {
+                [, , $raw] = $this->api('GET', $path, $viewer);
                 $this->assertStringNotContainsString('SECRET-CARD-2', $raw, $path);
                 $this->assertStringNotContainsString('SECRET-CARD-3', $raw, $path);
             }
@@ -122,22 +179,22 @@ class CorkboardTest extends TestCase
     public function roles_decide_what_a_person_can_change(): void
     {
         // A viewer of a public board can't add cards.
-        [$status] = $this->call('POST', '/boards/1/cards', 2, ['columnId' => 11, 'title' => 'Nope']);
+        [$status] = $this->write('POST', 'cards', null, 2, ['boardId' => 1, 'columnId' => 11, 'title' => 'Nope']);
         $this->assertSame(403, $status);
         // A commenter (through Volunteers) can comment but not edit.
-        [$status] = $this->call('POST', '/cards/200/comments', 5, ['content' => 'I can help Thursday']);
-        $this->assertSame(200, $status);
-        [$status] = $this->call('PATCH', '/cards/200', 5, ['title' => 'Changed']);
+        [$status] = $this->write('POST', 'comments', null, 5, ['cardId' => 200, 'content' => 'I can help Thursday']);
+        $this->assertSame(201, $status);
+        [$status] = $this->write('PATCH', 'cards', 200, 5, ['title' => 'Changed']);
         $this->assertSame(403, $status);
         // An editor can.
-        [$status, $json] = $this->call('PATCH', '/cards/200', 4, ['title' => 'Book the venue']);
+        [$status, $json] = $this->write('PATCH', 'cards', 200, 4, ['title' => 'Book the venue']);
         $this->assertSame(200, $status);
         $this->assertSame('Book the venue', $json['card']['title']);
         // A completed board is read-only, even for its editors.
-        [$status] = $this->call('PATCH', '/cards/500', 4, ['title' => 'Too late']);
+        [$status] = $this->write('PATCH', 'cards', 500, 4, ['title' => 'Too late']);
         $this->assertSame(403, $status);
         // Its owner (a manager) can reopen it.
-        [$status, $json] = $this->call('PATCH', '/boards/5', 3, ['status' => 'active']);
+        [$status, $json] = $this->write('PATCH', 'boards', 5, 3, ['status' => 'active']);
         $this->assertSame(200, $status);
         $this->assertSame('active', $json['board']['status']);
     }
@@ -145,8 +202,8 @@ class CorkboardTest extends TestCase
     #[Test]
     public function a_board_from_a_template_gets_its_columns_and_labels(): void
     {
-        [$status, $json] = $this->call('POST', '/boards', 2, ['title' => 'Spring Meetup 2027', 'template' => 'event']);
-        $this->assertSame(200, $status, json_encode($json));
+        [$status, $json, $raw] = $this->write('POST', 'boards', null, 2, ['title' => 'Spring Meetup 2027', 'template' => 'event']);
+        $this->assertSame(201, $status, $raw);
         // Five columns (their names are translated; the test forum has no language pack).
         $this->assertCount(5, $json['columns']);
         $this->assertSame([false, false, false, false, true], array_column($json['columns'], 'isDone'));
@@ -156,23 +213,23 @@ class CorkboardTest extends TestCase
         $this->assertSame('manager', $json['role']);
 
         // A member can't make a public board.
-        [$status] = $this->call('POST', '/boards', 2, ['title' => 'Open plan', 'visibility' => 'public']);
+        [$status] = $this->write('POST', 'boards', null, 2, ['title' => 'Open plan', 'visibility' => 'public']);
         $this->assertSame(422, $status);
     }
 
     #[Test]
     public function moving_into_done_finishes_a_card_and_back_out_reopens_it(): void
     {
-        [$status, $json] = $this->call('PATCH', '/cards/200', 4, ['columnId' => 22, 'afterId' => null]);
+        [$status, $json] = $this->write('PATCH', 'cards', 200, 4, ['columnId' => 22, 'afterId' => null]);
         $this->assertSame(200, $status);
         $this->assertNotNull($json['card']['completedAt']);
         $this->assertSame(1, $json['doneCount']);
 
-        [, $json] = $this->call('PATCH', '/cards/200', 4, ['completed' => false]);
+        [, $json] = $this->write('PATCH', 'cards', 200, 4, ['completed' => false]);
         $this->assertNull($json['card']['completedAt']);
         $this->assertSame(21, $json['card']['columnId']);
 
-        [, $json] = $this->call('PATCH', '/cards/200', 4, ['completed' => true]);
+        [, $json] = $this->write('PATCH', 'cards', 200, 4, ['completed' => true]);
         $this->assertSame(22, $json['card']['columnId']);
     }
 
@@ -181,17 +238,17 @@ class CorkboardTest extends TestCase
     {
         $ids = [];
         foreach (['A', 'B', 'C'] as $title) {
-            [, $json] = $this->call('POST', '/boards/2/cards', 4, ['columnId' => 21, 'title' => $title]);
+            [, $json] = $this->write('POST', 'cards', null, 4, ['boardId' => 2, 'columnId' => 21, 'title' => $title]);
             $ids[$title] = $json['card']['id'];
         }
         // C to the top, then B between C and A.
-        $this->call('PATCH', '/cards/'.$ids['C'], 4, ['columnId' => 21, 'afterId' => null]);
-        $this->call('PATCH', '/cards/'.$ids['B'], 4, ['columnId' => 21, 'afterId' => $ids['C']]);
+        $this->write('PATCH', 'cards', $ids['C'], 4, ['columnId' => 21, 'afterId' => null]);
+        $this->write('PATCH', 'cards', $ids['B'], 4, ['columnId' => 21, 'afterId' => $ids['C']]);
         // Squeeze many cards into one gap: the column is renumbered when it closes.
         for ($i = 0; $i < 12; $i++) {
-            [, $json] = $this->call('POST', '/boards/2/cards', 4, ['columnId' => 21, 'title' => "x$i", 'afterId' => $ids['C']]);
+            [, $json] = $this->write('POST', 'cards', null, 4, ['boardId' => 2, 'columnId' => 21, 'title' => "x$i", 'afterId' => $ids['C']]);
         }
-        [, $json] = $this->call('GET', '/boards/2', 4);
+        $json = $this->read('boards', '/2', 4)[1]['data']['attributes']['view'];
         $titles = array_column(array_filter($json['cards'], fn ($c) => $c['columnId'] === 21), 'title');
         $this->assertSame('C', $titles[0]);
         $this->assertSame('x11', $titles[1]);
@@ -202,7 +259,7 @@ class CorkboardTest extends TestCase
     public function assigning_tells_the_assignee_and_only_people_who_can_see_the_board(): void
     {
         // normal (2) can't see team board 2: they're not assigned.
-        [$status, $json] = $this->call('PATCH', '/cards/200', 3, ['assigneeIds' => [4, 2]]);
+        [$status, $json] = $this->write('PATCH', 'cards', 200, 3, ['assigneeIds' => [4, 2]]);
         $this->assertSame(200, $status);
         $this->assertSame([4], $json['card']['assigneeIds']);
 
@@ -210,7 +267,7 @@ class CorkboardTest extends TestCase
         $this->assertSame([4], array_map('intval', $alerts));
 
         // Assigning a second person keeps the first one's alert.
-        $this->call('PATCH', '/cards/200', 3, ['assigneeIds' => [4, 5]]);
+        $this->write('PATCH', 'cards', 200, 3, ['assigneeIds' => [4, 5]]);
         $this->assertSame(2, $this->database()->table('notifications')->where('type', 'corkboardAssigned')->where('is_deleted', false)->count());
 
         // Both alerts list fine (the subject has an API resource).
@@ -222,7 +279,7 @@ class CorkboardTest extends TestCase
     public function a_mention_in_a_comment_is_an_alert(): void
     {
         $xmlUser = '@"marc"#4';
-        $this->call('POST', '/cards/200/comments', 3, ['content' => "Can you take this, $xmlUser?"]);
+        $this->write('POST', 'comments', null, 3, ['cardId' => 200, 'content' => "Can you take this, $xmlUser?"]);
         $this->assertSame(1, $this->database()->table('corkboard_comments')->count());
         $this->assertSame(1, (int) $this->database()->table('corkboard_cards')->where('id', 200)->value('comment_count'));
     }
@@ -234,7 +291,7 @@ class CorkboardTest extends TestCase
             $db = $this->database();
             $db->flushQueryLog();
             $db->enableQueryLog();
-            [$status] = $this->call('GET', '/boards/1', $as);
+            [$status] = $this->read('boards', '/1', $as);
             $this->assertSame(200, $status);
             $n = count($db->getQueryLog());
             $db->disableQueryLog();
@@ -242,8 +299,8 @@ class CorkboardTest extends TestCase
             return $n;
         };
 
-        $this->call('GET', '/boards/1', 3);
-        $this->call('GET', '/boards/1', 4);
+        $this->read('boards', '/1', 3);
+        $this->read('boards', '/1', 4);
         $one = [$count(3), $count(4)];
 
         $now = Carbon::now();
@@ -314,8 +371,10 @@ class CorkboardTest extends TestCase
             }
         };
         $this->app()->getContainer()->instance(\Pusher\Pusher::class, $fake);
+        // What Extend\Conditional does when flarum/realtime is enabled.
+        $this->app()->getContainer()->make(\ErnestDefoe\Corkboard\Extensions::class)->switchOn('flarum-realtime');
 
-        $this->call('PATCH', '/cards/200', 3, ['columnId' => 22, 'afterId' => null]);
+        $this->write('PATCH', 'cards', 200, 3, ['columnId' => 22, 'afterId' => null]);
         $boards = array_values(array_filter($fake->sent, fn ($e) => $e[2]['t'] === 'board'));
         $this->assertNotEmpty($boards);
         [$channels, $event, $data] = end($boards);
@@ -331,7 +390,7 @@ class CorkboardTest extends TestCase
     #[Test]
     public function the_calendar_feed_lists_the_owners_due_cards(): void
     {
-        $this->call('PATCH', '/cards/200', 3, ['assigneeIds' => [4], 'dueAt' => '2030-04-17T15:00:00Z']);
+        $this->write('PATCH', 'cards', 200, 3, ['assigneeIds' => [4], 'dueAt' => '2030-04-17T15:00:00Z']);
         [, $json] = $this->call('GET', '/feed-token', 4);
         $this->assertNull($json['url'], 'a GET makes no link');
         [, $json] = $this->call('POST', '/feed-token', 4);
@@ -369,13 +428,16 @@ class CorkboardTest extends TestCase
         $this->assertSame(str_repeat('a', 40), $this->database()->table('corkboard_feed_tokens')->where('user_id', 4)->value('token'));
         [$status] = $this->call('GET', '/feed/'.str_repeat('a', 40), null);
         $this->assertSame(200, $status, 'the old link keeps working');
+
+        // MySQL commits around schema changes, so this test's rows outlive its transaction.
+        $this->database()->table('corkboard_feed_tokens')->delete();
     }
 
     #[Test]
     public function erasing_a_member_takes_them_off_teams_and_retires_their_feed(): void
     {
         $this->call('POST', '/feed-token', 4);
-        $this->call('PATCH', '/cards/200', 3, ['assigneeIds' => [4]]);
+        $this->write('PATCH', 'cards', 200, 3, ['assigneeIds' => [4]]);
         $c = $this->app()->getContainer();
         $type = new \ErnestDefoe\Corkboard\Gdpr\CorkboardData(
             User::query()->findOrFail(4), null, $c->make(\Illuminate\Contracts\Filesystem\Factory::class),
@@ -406,19 +468,19 @@ class CorkboardTest extends TestCase
     #[Test]
     public function private_boards_drop_group_rows_and_refuse_new_ones(): void
     {
-        [$status] = $this->call('POST', '/boards/3/members', 3, ['groupId' => 10, 'role' => 'editor']);
+        [$status] = $this->write('POST', 'members', null, 3, ['boardId' => 3, 'groupId' => 10, 'role' => 'editor']);
         $this->assertSame(422, $status);
-        $this->call('PATCH', '/boards/2', 3, ['visibility' => 'private']);
+        $this->write('PATCH', 'boards', 2, 3, ['visibility' => 'private']);
         $this->assertSame(0, $this->database()->table('corkboard_members')->where('board_id', 2)->whereNotNull('group_id')->count());
     }
 
     #[Test]
     public function a_column_with_cards_is_not_deleted(): void
     {
-        [$status] = $this->call('DELETE', '/columns/21', 3);
+        [$status] = $this->write('DELETE', 'columns', 21, 3);
         $this->assertSame(422, $status);
-        [$status, $json] = $this->call('POST', '/boards/2/columns', 3, ['title' => 'Waiting', 'afterId' => 21]);
-        $this->assertSame(200, $status);
+        [$status, $json] = $this->write('POST', 'columns', null, 3, ['boardId' => 2, 'title' => 'Waiting', 'afterId' => 21]);
+        $this->assertSame(201, $status);
         $this->assertSame(['To do', 'Waiting', 'Done'], array_column($json['columns'], 'title'));
     }
 
@@ -430,8 +492,8 @@ class CorkboardTest extends TestCase
         $response = $this->send($this->request('GET', '/api/discussions/7', ['authenticatedAs' => 2]));
         $this->assertArrayNotHasKey('corkboardCards', json_decode((string) $response->getBody(), true)['data']['attributes']);
 
-        $this->call('PATCH', '/cards/100', 3, ['discussionId' => 7]);
-        $this->call('PATCH', '/cards/200', 3, ['discussionId' => 7]);
+        $this->write('PATCH', 'cards', 100, 3, ['discussionId' => 7]);
+        $this->write('PATCH', 'cards', 200, 3, ['discussionId' => 7]);
 
         $chips = fn (?int $as) => array_column(json_decode((string) $this->send($this->request('GET', '/api/discussions', $as ? ['authenticatedAs' => $as] : []))->getBody(), true)['data'][0]['attributes']['corkboardCards'] ?? [], 'board');
         // Board 1 is public; board 2 is a team board the normal user isn't on.
@@ -443,8 +505,8 @@ class CorkboardTest extends TestCase
     #[Test]
     public function due_soon_and_overdue_are_sent_once_to_the_assignees(): void
     {
-        $this->call('PATCH', '/cards/200', 3, ['assigneeIds' => [4], 'dueAt' => Carbon::now()->addHours(5)->toIso8601String()]);
-        $this->call('PATCH', '/cards/100', 3, ['dueAt' => Carbon::now()->subHours(5)->toIso8601String()]);
+        $this->write('PATCH', 'cards', 200, 3, ['assigneeIds' => [4], 'dueAt' => Carbon::now()->addHours(5)->toIso8601String()]);
+        $this->write('PATCH', 'cards', 100, 3, ['dueAt' => Carbon::now()->subHours(5)->toIso8601String()]);
         $this->database()->table('notifications')->delete();
 
         $run = function () {
@@ -484,14 +546,14 @@ class CorkboardTest extends TestCase
     #[Test]
     public function a_card_takes_at_most_twenty_people_and_only_people_who_can_see_the_board(): void
     {
-        [$status] = $this->call('PATCH', '/cards/200', 3, ['assigneeIds' => range(1000, 1020)]);
+        [$status] = $this->write('PATCH', 'cards', 200, 3, ['assigneeIds' => range(1000, 1020)]);
         $this->assertSame(422, $status);
         // Board 2 (team): marc by name, vol through Volunteers, mod by permission; the normal user can't see it.
-        $this->call('PATCH', '/cards/200', 3, ['assigneeIds' => [2, 4, 5, 6]]);
+        $this->write('PATCH', 'cards', 200, 3, ['assigneeIds' => [2, 4, 5, 6]]);
         $ids = $this->database()->table('corkboard_assignees')->where('card_id', 200)->orderBy('user_id')->pluck('user_id')->map(fn ($id) => (int) $id)->all();
         $this->assertSame([4, 5, 6], $ids);
         // Board 3 is private: the Volunteers group row doesn't count.
-        $this->call('PATCH', '/cards/300', 3, ['assigneeIds' => [4, 5]]);
+        $this->write('PATCH', 'cards', 300, 3, ['assigneeIds' => [4, 5]]);
         $this->assertSame([4], $this->database()->table('corkboard_assignees')->where('card_id', 300)->pluck('user_id')->map(fn ($id) => (int) $id)->all());
     }
 
@@ -501,14 +563,14 @@ class CorkboardTest extends TestCase
         // Assigned is emailed by default; Overdue isn't (the defaults the scope gives).
         $this->database()->table('users')->where('id', 5)->update(['preferences' => json_encode(['notify_corkboardAssigned_email' => false])]);
         foreach ([200, 100 + 100] as $card) {
-            $this->call('PATCH', "/cards/$card", 3, ['assigneeIds' => []]);
-            $this->call('PATCH', "/cards/$card", 3, ['assigneeIds' => [4]]);
+            $this->write('PATCH', 'cards', $card, 3, ['assigneeIds' => []]);
+            $this->write('PATCH', 'cards', $card, 3, ['assigneeIds' => [4]]);
         }
-        [, $json] = $this->call('POST', '/boards/2/cards', 3, ['columnId' => 21, 'title' => 'Order the banners']);
-        $this->call('PATCH', '/cards/'.$json['card']['id'], 3, ['assigneeIds' => [4]]);
+        [, $json] = $this->write('POST', 'cards', null, 3, ['boardId' => 2, 'columnId' => 21, 'title' => 'Order the banners']);
+        $this->write('PATCH', 'cards', $json['card']['id'], 3, ['assigneeIds' => [4]]);
         $this->assertSame(3, $this->database()->table('corkboard_outbox')->where('user_id', 4)->count());
         // Someone who switched the email off gets the alert and no email.
-        $this->call('PATCH', '/cards/200', 3, ['assigneeIds' => [4, 5]]);
+        $this->write('PATCH', 'cards', 200, 3, ['assigneeIds' => [4, 5]]);
         $this->assertSame(1, $this->database()->table('notifications')->where('user_id', 5)->count());
         $this->assertSame(0, $this->database()->table('corkboard_outbox')->where('user_id', 5)->count());
 
@@ -523,7 +585,7 @@ class CorkboardTest extends TestCase
     public function a_projects_boards_are_listed_by_project(): void
     {
         $this->database()->table('corkboard_boards')->whereIn('id', [1, 2])->update(['project_id' => 9]);
-        $ids = fn (?int $as) => array_column($this->call('GET', '/boards?tab=all&project=9', $as)[1]['boards'], 'id');
+        $ids = fn (?int $as) => $this->ids('boards', '?filter[tab]=all&filter[project]=9', $as);
         $this->assertSame([1], $ids(2));
         $this->assertEqualsCanonicalizing([1, 2], $ids(4));
     }
@@ -533,37 +595,514 @@ class CorkboardTest extends TestCase
     {
         $statuses = [];
         for ($i = 0; $i < 31; $i++) {
-            [$statuses[]] = $this->call('POST', '/cards/200/comments', 4, ['content' => "Note $i"]);
+            [$statuses[]] = $this->write('POST', 'comments', null, 4, ['cardId' => 200, 'content' => "Note $i"]);
         }
-        $this->assertSame(200, $statuses[28]);
+        $this->assertSame(201, $statuses[28]);
         $this->assertSame(429, $statuses[30]);
         // Moderators aren't limited.
-        [$status] = $this->call('POST', '/cards/200/comments', 6, ['content' => 'Still here']);
-        $this->assertSame(200, $status);
+        [$status] = $this->write('POST', 'comments', null, 6, ['cardId' => 200, 'content' => 'Still here']);
+        $this->assertSame(201, $status);
     }
 
     #[Test]
     public function nobody_reaches_another_boards_things_by_changing_an_id(): void
     {
         // Volunteers (user 5) can't see private board 3: its card, column and members are 404s.
-        $this->assertSame(404, $this->call('PATCH', '/cards/300', 5, ['title' => 'x'])[0]);
-        $this->assertSame(404, $this->call('POST', '/cards/300/comments', 5, ['content' => 'x'])[0]);
-        $this->assertSame(404, $this->call('PATCH', '/columns/31', 5, ['title' => 'x'])[0]);
-        $this->assertSame(404, $this->call('PATCH', '/members/3', 5, ['role' => 'manager'])[0]);
+        $this->assertSame(404, $this->write('PATCH', 'cards', 300, 5, ['title' => 'x'])[0]);
+        $this->assertSame(404, $this->write('POST', 'comments', null, 5, ['cardId' => 300, 'content' => 'x'])[0]);
+        $this->assertSame(404, $this->write('PATCH', 'columns', 31, 5, ['title' => 'x'])[0]);
+        $this->assertSame(404, $this->write('PATCH', 'members', 3, 5, ['role' => 'manager'])[0]);
         // A viewer of public board 1 can't change its structure, cards or checklist.
-        $this->assertSame(403, $this->call('DELETE', '/columns/12', 2)[0]);
-        $this->assertSame(403, $this->call('POST', '/cards/100/checklist', 2, ['text' => 'x'])[0]);
-        $this->assertSame(403, $this->call('POST', '/boards/1/labels', 2, ['name' => 'x'])[0]);
+        $this->assertSame(403, $this->write('DELETE', 'columns', 12, 2)[0]);
+        $this->assertSame(403, $this->write('POST', 'checklist-items', null, 2, ['cardId' => 100, 'text' => 'x'])[0]);
+        $this->assertSame(403, $this->write('POST', 'labels', null, 2, ['boardId' => 1, 'name' => 'x'])[0]);
         // An editor can't move a card into another board's column, or label it with another board's label.
-        $this->assertSame(422, $this->call('PATCH', '/cards/200', 4, ['columnId' => 11])[0]);
+        $this->assertSame(422, $this->write('PATCH', 'cards', 200, 4, ['columnId' => 11])[0]);
         $this->database()->table('corkboard_labels')->insert(['id' => 90, 'board_id' => 1, 'name' => 'Other', 'color' => '#1971c2', 'position' => 0]);
-        [, $json] = $this->call('PATCH', '/cards/200', 4, ['labelIds' => [90]]);
+        [, $json] = $this->write('PATCH', 'cards', 200, 4, ['labelIds' => [90]]);
         $this->assertSame([], $json['card']['labelIds']);
         // Someone else's comment can't be edited, only deleted by a manager.
-        [, $json] = $this->call('POST', '/cards/200/comments', 4, ['content' => 'Mine']);
+        [, $json] = $this->write('POST', 'comments', null, 4, ['cardId' => 200, 'content' => 'Mine']);
         $id = $json['comments'][0]['id'];
-        $this->assertSame(403, $this->call('PATCH', "/comments/$id", 5, ['content' => 'Changed'])[0]);
-        $this->assertSame(403, $this->call('DELETE', "/comments/$id", 5)[0]);
-        $this->assertSame(204, $this->call('DELETE', "/comments/$id", 3)[0]);
+        $this->assertSame(403, $this->write('PATCH', 'comments', $id, 5, ['content' => 'Changed'])[0]);
+        $this->assertSame(403, $this->write('DELETE', 'comments', $id, 5)[0]);
+        $this->assertSame(204, $this->write('DELETE', 'comments', $id, 3)[0]);
+    }
+
+    #[Test]
+    public function guests_can_write_nothing(): void
+    {
+        $db = $this->database();
+        $db->table('corkboard_labels')->insert(['id' => 1, 'board_id' => 1, 'name' => 'Food', 'color' => '#c2410c', 'position' => 1]);
+        $db->table('corkboard_members')->insert(['id' => 9, 'board_id' => 1, 'user_id' => 4, 'group_id' => null, 'role' => 'editor']);
+        $db->table('corkboard_comments')->insert(['id' => 1, 'card_id' => 100, 'user_id' => 3, 'content' => '<t>Hi</t>', 'created_at' => Carbon::now()]);
+        $db->table('corkboard_checklist')->insert(['id' => 1, 'card_id' => 100, 'text' => 'Item', 'is_done' => false, 'position' => 1024]);
+        // Everything here is on public board 1, which guests may read.
+        $creates = [
+            'boards' => ['title' => 'Mine now'], 'columns' => ['boardId' => 1, 'title' => 'x'], 'labels' => ['boardId' => 1, 'name' => 'x'],
+            'cards' => ['boardId' => 1, 'columnId' => 11, 'title' => 'x'], 'comments' => ['cardId' => 100, 'content' => 'x'],
+            'checklist-items' => ['cardId' => 100, 'text' => 'x'], 'members' => ['boardId' => 1, 'userId' => 2, 'role' => 'editor'],
+        ];
+        $existing = ['boards' => 1, 'columns' => 11, 'labels' => 1, 'cards' => 100, 'comments' => 1, 'checklist-items' => 1, 'members' => 9];
+        $changes = ['boards' => ['title' => 'x'], 'columns' => ['title' => 'x'], 'labels' => ['name' => 'x'], 'cards' => ['title' => 'x'], 'comments' => ['content' => 'x'], 'checklist-items' => ['text' => 'x'], 'members' => ['role' => 'manager']];
+        foreach ($creates as $type => $attributes) {
+            [$status, , $raw] = $this->write('POST', $type, null, null, $attributes);
+            $this->assertSame(401, $status, "create $type: $raw");
+            $this->assertSame(200, $this->read($type, '/'.$existing[$type], null)[0], "read $type");
+            $this->assertSame(401, $this->write('PATCH', $type, $existing[$type], null, $changes[$type])[0], "update $type");
+            $this->assertSame(401, $this->write('DELETE', $type, $existing[$type], null)[0], "delete $type");
+        }
+        $this->assertSame(1, $db->table('corkboard_boards')->where('id', 1)->where('title', 'Board 1')->count());
+        $this->assertSame(1, $db->table('corkboard_comments')->count());
+        // The non-resource writes too (a guest is never an editor, so cloning is a 403).
+        $boards = $db->table('corkboard_boards')->count();
+        $cards = $db->table('corkboard_cards')->count();
+        foreach (['/boards/1/clone', '/boards/1/pin', '/cards/100/clone', '/cards/100/discussion', '/feed-token'] as $path) {
+            $this->assertContains($this->call('POST', $path, null)[0], [401, 403], $path);
+        }
+        $this->assertSame([$boards, $cards, 0], [$db->table('corkboard_boards')->count(), $db->table('corkboard_cards')->count(), $db->table('corkboard_pins')->where('board_id', 1)->count()]);
+    }
+
+    #[Test]
+    public function lists_and_reads_never_show_a_hidden_boards_things(): void
+    {
+        $db = $this->database();
+        foreach ([100, 200, 300, 400] as $i => $card) {
+            $db->table('corkboard_comments')->insert(['id' => $i + 1, 'card_id' => $card, 'user_id' => 3, 'content' => "<t>Note on $card</t>", 'created_at' => Carbon::now()]);
+            $db->table('corkboard_checklist')->insert(['id' => $i + 1, 'card_id' => $card, 'text' => "Item on $card", 'is_done' => false, 'position' => 1024]);
+            $db->table('corkboard_labels')->insert(['id' => $i + 1, 'board_id' => $card / 100, 'name' => 'L', 'color' => '#c2410c', 'position' => 1]);
+        }
+
+        // The normal user sees public board 1 and members board 4 only.
+        $this->assertSame([11, 12, 41, 42], $this->ids('columns', '', 2));
+        $this->assertSame([], $this->ids('columns', '?filter[board]=2', 2));
+        $this->assertSame([100, 400], $this->ids('cards', '', 2));
+        $this->assertSame([], $this->ids('cards', '?filter[board]=3', 2));
+        $this->assertSame([1, 4], $this->ids('comments', '', 2));
+        $this->assertSame([], $this->ids('comments', '?filter[card]=200', 2));
+        // Guests: board 1 only.
+        $this->assertSame([11, 12], $this->ids('columns', '', null));
+        $this->assertSame([100], $this->ids('cards', '', null));
+        $this->assertSame([1], $this->ids('comments', '', null));
+        // Volunteers (5) are on team board 2 through their group, never on private board 3.
+        $this->assertSame([11, 12, 21, 22, 41, 42], $this->ids('columns', '', 5));
+        $this->assertSame([1, 2, 4], $this->ids('comments', '', 5));
+
+        foreach (['boards' => 2, 'columns' => 21, 'labels' => 2, 'cards' => 200, 'comments' => 2, 'checklist-items' => 2, 'members' => 1] as $type => $id) {
+            $this->assertSame(404, $this->read($type, "/$id", 2)[0], "$type $id");
+        }
+        foreach (['boards' => 3, 'columns' => 31, 'labels' => 3, 'cards' => 300, 'comments' => 3, 'checklist-items' => 3, 'members' => 3] as $type => $id) {
+            $this->assertSame(404, $this->read($type, "/$id", 5)[0], "$type $id");
+            $this->assertSame(200, $this->read($type, "/$id", 4)[0], "$type $id");
+        }
+        // A deleted board takes its columns, cards and comments with it.
+        $db->table('corkboard_boards')->where('id', 1)->update(['deleted_at' => Carbon::now()]);
+        $this->assertSame([41, 42], $this->ids('columns', '', 2));
+        $this->assertSame([400], $this->ids('cards', '', 2));
+        $this->assertSame([4], $this->ids('comments', '', 2));
+        $this->assertSame(404, $this->read('cards', '/100', 2)[0]);
+    }
+
+    #[Test]
+    public function the_boards_list_pages_and_pins(): void
+    {
+        $now = Carbon::now();
+        $rows = [];
+        for ($i = 10; $i < 45; $i++) {
+            $rows[] = ['id' => $i, 'owner_id' => 4, 'title' => "Extra $i", 'slug' => "extra-$i", 'color' => '#4d698e', 'visibility' => 'public', 'status' => 'active', 'is_template' => false, 'card_count' => 0, 'done_count' => 0, 'version' => 1, 'last_activity_at' => $now->copy()->subMinutes($i), 'created_at' => $now, 'updated_at' => $now];
+        }
+        $this->database()->table('corkboard_boards')->insert($rows);
+        $this->call('POST', '/boards/2/pin', 4, ['pinned' => true]);
+
+        [, $first] = $this->read('boards', '?filter[tab]=mine', 4);
+        $this->assertCount(30, $first['data']);
+        // A tile carries what the browser also writes (declared once for both).
+        $tile = collect($first['data'])->firstWhere('attributes.title', 'Extra 10')['attributes'];
+        $this->assertSame(['public', '#4d698e', 'active', false], [$tile['visibility'], $tile['color'], $tile['status'], $tile['isTemplate']]);
+        $this->assertSame(4, $tile['ownerId']);
+        $this->assertArrayHasKey('next', $first['links']);
+        $this->assertSame([2], array_column($first['meta']['pinned'], 'id'));
+        $tile = $first['meta']['pinned'][0];
+        $this->assertTrue($tile['pinned']);
+        $this->assertSame('editor', $tile['role']);
+        // The team's pictures come with the tile: the owner first, then the people on it by name.
+        $this->assertSame(['ana', 'marc'], array_column($tile['people'], 'username'));
+
+        [, $second] = $this->read('boards', '?filter[tab]=mine&page[offset]=30', 4);
+        $this->assertArrayNotHasKey('next', $second['links'] ?? []);
+        $this->assertSame([], $second['meta']['pinned']);
+        // Mine: 35 extra boards of marc's own, and boards 2 and 3 (on the team); 4 and 1 aren't his.
+        $this->assertCount(37, array_merge($first['data'], $second['data']));
+        // A word in the title.
+        $this->assertSame([12], $this->ids('boards', '?filter[tab]=all&filter[q]=Extra 12', 4));
+    }
+
+    /**
+     * The test forum has no language pack, so nothing is translated: load Corkboard's English
+     * (and anything else given) to see real sentences.
+     *
+     * @param array<string, array<string, string>> $more locale => key => text
+     */
+    private function english(array $more = []): \Flarum\Locale\TranslatorInterface
+    {
+        $translator = $this->app()->getContainer()->make(\Flarum\Locale\TranslatorInterface::class);
+        $translator->addLoader('yaml', new \Symfony\Component\Translation\Loader\YamlFileLoader());
+        $translator->addLoader('array', new \Symfony\Component\Translation\Loader\ArrayLoader());
+        $translator->addResource('yaml', __DIR__.'/../../../locale/en.yml', 'en');
+        foreach ($more as $locale => $messages) {
+            $translator->addResource('array', $messages, $locale);
+        }
+
+        return $translator;
+    }
+
+    /** How many queries a request (or anything) costs. */
+    private function queries(callable $fn): int
+    {
+        $db = $this->database();
+        $db->flushQueryLog();
+        $db->enableQueryLog();
+        $fn();
+        $n = count($db->getQueryLog());
+        if (getenv('CK_DUMP')) {
+            fwrite(STDERR, implode("\n", array_column($db->getQueryLog(), 'query'))."\n-----\n");
+        }
+        $db->disableQueryLog();
+
+        return $n;
+    }
+
+    /**
+     * Cards on board 2 (team: ana owns it, marc by name, vol through Volunteers).
+     *
+     * @param array<string, mixed> $extra
+     */
+    private function cards(int $from, int $count, array $extra = []): void
+    {
+        $now = Carbon::now();
+        $rows = [];
+        for ($i = $from; $i < $from + $count; $i++) {
+            $rows[] = $extra + ['id' => $i, 'board_id' => 2, 'column_id' => 21, 'position' => $i * 1024, 'title' => "Card $i", 'priority' => 'none', 'user_id' => 3, 'comment_count' => 0, 'checklist_total' => 0, 'checklist_done' => 0, 'due_all_day' => false, 'created_at' => $now, 'updated_at' => $now];
+        }
+        foreach (array_chunk($rows, 100) as $chunk) {
+            $this->database()->table('corkboard_cards')->insert($chunk);
+        }
+    }
+
+    #[Test]
+    public function my_cards_and_due_soon_are_filters_on_the_cards_list(): void
+    {
+        $soon = Carbon::now()->addHours(5);
+        $this->cards(1000, 3, ['due_at' => $soon]);
+        $this->database()->table('corkboard_assignees')->insert([['card_id' => 1000, 'user_id' => 4], ['card_id' => 1001, 'user_id' => 4], ['card_id' => 300, 'user_id' => 4], ['card_id' => 500, 'user_id' => 4]]);
+        $this->database()->table('corkboard_cards')->where('id', 1001)->update(['completed_at' => Carbon::now()]);
+
+        // Marc's open cards on open boards (board 5 is completed), with where they are and who's on them.
+        [$status, $json, $raw] = $this->read('cards', '?filter[mine]=1', 4);
+        $this->assertSame(200, $status, $raw);
+        $this->assertSame(['1000', '300'], array_column($json['data'], 'id'), 'due first');
+        $card = $json['data'][0]['attributes'];
+        $this->assertSame(['Card 1000', 'Board 2', 'To do', '#4d698e'], [$card['title'], $card['boardTitle'], $card['columnTitle'], $card['boardColor']]);
+        $this->assertSame(['marc'], array_column($card['people'], 'username'));
+        $this->assertSame(2, $json['meta']['page']['total']);
+        // Same due date: by priority, then newest first.
+        $this->assertSame(['1001', '1000', '300'], array_column($this->read('cards', '?filter[mine]=1&filter[done]=1', 4)[1]['data'], 'id'));
+        // Owned: ana started every card.
+        $this->assertCount(7, $this->read('cards', '?filter[mine]=1&filter[owned]=1&filter[done]=1', 3)[1]['data']);
+        $this->assertSame([], $this->read('cards', '?filter[mine]=1', null)[1]['data'], 'guests have no cards');
+
+        // Due within three days on the boards marc is on; one board for anyone who may see it.
+        $this->assertSame(['1000', '1002'], array_column($this->read('cards', '?filter[dueWithin]=3', 4)[1]['data'], 'id'));
+        $this->assertSame([], $this->read('cards', '?filter[dueWithin]=3', 2)[1]['data'], 'the normal user is on no team');
+        $this->assertSame([], $this->read('cards', '?filter[dueWithin]=3', null)[1]['data']);
+        $this->database()->table('corkboard_cards')->where('id', 100)->update(['due_at' => $soon]);
+        $this->assertSame(['100'], array_column($this->read('cards', '?filter[dueWithin]=3&filter[board]=1', null)[1]['data'], 'id'));
+        $this->assertSame([], $this->read('cards', '?filter[dueWithin]=3&filter[board]=2', 2)[1]['data'], 'not a board they may see');
+    }
+
+    #[Test]
+    public function a_card_list_costs_the_same_queries_for_one_card_or_a_hundred(): void
+    {
+        $list = fn () => $this->queries(fn () => $this->assertSame(200, $this->read('cards', '?filter[mine]=1&filter[done]=1&page[limit]=100', 4)[0]));
+        $this->database()->table('corkboard_assignees')->insert(['card_id' => 200, 'user_id' => 4]);
+        $list();
+        $one = $list();
+        $this->cards(1000, 99);
+        $this->database()->table('corkboard_labels')->insert(['id' => 1, 'board_id' => 2, 'name' => 'L', 'color' => '#c2410c', 'position' => 1]);
+        $people = $labels = [];
+        for ($i = 1000; $i < 1099; $i++) {
+            $people[] = ['card_id' => $i, 'user_id' => 4];
+            $people[] = ['card_id' => $i, 'user_id' => [3, 5, 6][$i % 3]];
+            $labels[] = ['card_id' => $i, 'label_id' => 1];
+        }
+        $this->database()->table('corkboard_assignees')->insertOrIgnore($people);
+        $this->database()->table('corkboard_card_label')->insert($labels);
+        [, $json] = $this->read('cards', '?filter[mine]=1&filter[done]=1&page[limit]=100', 4);
+        $this->assertCount(100, $json['data']);
+        $this->assertSame([1], $json['data'][1]['attributes']['labelIds']);
+        $this->assertSame($one, $list());
+    }
+
+    #[Test]
+    public function a_big_columns_next_cards_and_the_archived_ones_are_filters_too(): void
+    {
+        $this->cards(1000, 5);
+        $this->database()->table('corkboard_cards')->where('id', 1004)->update(['archived_at' => Carbon::now()]);
+        // After the card at position 1001 * 1024: the rest of the column, as the board draws them.
+        [, $json] = $this->read('cards', '?filter[column]=21&filter[after]='.(1001 * 1024), 4);
+        $this->assertSame(['1002', '1003'], array_column($json['data'], 'id'));
+        $this->assertSame(21, $json['data'][0]['attributes']['columnId']);
+        $this->assertSame(1002 * 1024, $json['data'][0]['attributes']['position']);
+        $this->assertSame([], $json['data'][0]['attributes']['assigneeIds']);
+        [, $json] = $this->read('cards', '?filter[board]=2&filter[archived]=1', 4);
+        $this->assertSame(['1004'], array_column($json['data'], 'id'));
+        $this->assertNotNull($json['data'][0]['attributes']['archivedAt']);
+        $this->assertSame([], $this->read('cards', '?filter[column]=21', 2)[1]['data'], 'a board they can\'t see');
+    }
+
+    #[Test]
+    public function board_and_card_history_come_from_one_route(): void
+    {
+        $this->write('PATCH', 'cards', 200, 3, ['title' => 'Renamed']);
+        $this->write('PATCH', 'boards', 2, 3, ['description' => 'Notes']);
+        [$status, $json] = $this->call('GET', '/activity?board=2', 4);
+        $this->assertSame(200, $status);
+        $this->assertSame(['board_updated', 'card_renamed'], array_column($json['items'], 'type'));
+        $this->assertSame('Renamed', $json['cards'][200]);
+        [, $json] = $this->call('GET', '/activity?card=200', 4);
+        $this->assertSame(['card_renamed'], array_column($json['items'], 'type'));
+        $this->assertSame(404, $this->call('GET', '/activity?board=2', 2)[0]);
+        $this->assertSame(404, $this->call('GET', '/activity?card=200', 2)[0]);
+    }
+
+    #[Test]
+    public function templates_are_a_forum_attribute_and_a_boards_tab(): void
+    {
+        $forum = json_decode((string) $this->send($this->request('GET', '/api', ['authenticatedAs' => 2]))->getBody(), true)['data']['attributes'];
+        $this->assertSame(['simple', 'event', 'content', 'raid'], array_column($forum['corkboardTemplates'], 'key'));
+        $this->assertCount(5, $forum['corkboardTemplates'][1]['columns']);
+        $guest = json_decode((string) $this->send($this->request('GET', '/api'))->getBody(), true)['data']['attributes'];
+        $this->assertArrayNotHasKey('corkboardTemplates', $guest);
+
+        $this->database()->table('corkboard_boards')->whereIn('id', [1, 5])->update(['is_template' => true]);
+        [, $json] = $this->read('boards', '?filter[tab]=templates', 2);
+        // Board 5 is completed: not a template to start from.
+        $this->assertSame(['1'], array_column($json['data'], 'id'));
+        $this->assertSame(['To do', 'Done'], $json['data'][0]['attributes']['columns']);
+    }
+
+    #[Test]
+    public function template_boards_are_only_listed_to_people_who_may_use_them(): void
+    {
+        // Before anyone's permissions are read in this request cycle.
+        $this->database()->table('group_permission')->where('permission', 'corkboard.useTemplates')->delete();
+        $this->database()->table('corkboard_boards')->where('id', 1)->update(['is_template' => true]);
+        $this->assertSame([], $this->ids('boards', '?filter[tab]=templates', 2));
+        $this->assertSame([1], $this->ids('boards', '?filter[tab]=templates', 1), 'admins may');
+    }
+
+    #[Test]
+    public function cloning_a_board_copies_its_cards_in_a_fixed_number_of_queries_per_hundred(): void
+    {
+        $db = $this->database();
+        $db->table('corkboard_labels')->insert([['id' => 1, 'board_id' => 2, 'name' => 'Food', 'color' => '#c2410c', 'position' => 1], ['id' => 2, 'board_id' => 2, 'name' => 'Venue', 'color' => '#1971c2', 'position' => 2]]);
+        $db->table('corkboard_card_label')->insert([['card_id' => 200, 'label_id' => 2]]);
+        $db->table('corkboard_checklist')->insert([['card_id' => 200, 'text' => 'Ask', 'is_done' => true, 'position' => 1024], ['card_id' => 200, 'text' => 'Pay', 'is_done' => false, 'position' => 2048]]);
+        $clone = fn () => $this->queries(fn () => $this->assertSame(200, $this->call('POST', '/boards/2/clone', 3, ['cards' => true])[0]));
+        $clone();
+        $one = $clone();
+
+        $this->cards(1000, 99);
+        $pivot = $items = [];
+        for ($i = 1000; $i < 1099; $i++) {
+            $pivot[] = ['card_id' => $i, 'label_id' => 1 + $i % 2];
+            $items[] = ['card_id' => $i, 'text' => "Item $i", 'is_done' => false, 'position' => 1024];
+        }
+        $db->table('corkboard_card_label')->insert($pivot);
+        $db->table('corkboard_checklist')->insert($items);
+        $this->assertSame($one, $clone(), 'a hundred cards cost what one does');
+
+        // The copy of card 200: its label (the copy's own), its checklist unticked, the cloner's.
+        $copy = $db->table('corkboard_cards')->where('title', 'SECRET-CARD-2')->orderByDesc('id')->first();
+        $this->assertNotSame(2, (int) $copy->board_id);
+        $label = $db->table('corkboard_card_label')->where('card_id', $copy->id)->value('label_id');
+        $this->assertSame(['Venue', (int) $copy->board_id], [$db->table('corkboard_labels')->where('id', $label)->value('name'), (int) $db->table('corkboard_labels')->where('id', $label)->value('board_id')]);
+        $this->assertSame(['Ask', 'Pay'], $db->table('corkboard_checklist')->where('card_id', $copy->id)->orderBy('position')->pluck('text')->all());
+        $this->assertSame(0, $db->table('corkboard_checklist')->where('card_id', $copy->id)->where('is_done', true)->count());
+        // Every copy kept its own label: Card 1000 had Food, Card 1001 Venue.
+        foreach (['Card 1000' => 'Food', 'Card 1001' => 'Venue'] as $title => $name) {
+            $id = $db->table('corkboard_cards')->where('board_id', $copy->board_id)->where('title', $title)->value('id');
+            $this->assertSame($name, $db->table('corkboard_labels')->where('id', $db->table('corkboard_card_label')->where('card_id', $id)->value('label_id'))->value('name'));
+        }
+        $this->assertSame(100, $db->table('corkboard_cards')->where('board_id', $copy->board_id)->count());
+    }
+
+    #[Test]
+    public function the_digest_is_written_in_each_recipients_language(): void
+    {
+        $c = $this->app()->getContainer();
+        $translator = $this->english(['fr' => ['ernestdefoe-corkboard.email.line.corkboardAssigned' => 'FR: {card}']]);
+        $mailer = new class extends \Flarum\Notification\NotificationMailer {
+            /** @var array<int, list<string>> */
+            public array $sent = [];
+
+            public function __construct()
+            {
+            }
+
+            public function send(\Flarum\Notification\MailableInterface&\Flarum\Notification\Blueprint\BlueprintInterface $blueprint, User $user): void
+            {
+                /** @var \ErnestDefoe\Corkboard\Notification\DigestBlueprint $blueprint */
+                $this->sent[$user->id] = array_column($blueprint->lines, 'text');
+            }
+        };
+        $c->instance(\Flarum\Notification\NotificationMailer::class, $mailer);
+        $this->database()->table('users')->where('id', 4)->update(['preferences' => json_encode(['locale' => 'fr'])]);
+
+        $this->write('PATCH', 'cards', 200, 3, ['assigneeIds' => [4, 5]]);
+        $c->make(\ErnestDefoe\Corkboard\Mail\Outbox::class)->flush(true);
+
+        $this->assertSame(['FR: SECRET-CARD-2'], $mailer->sent[4]);
+        $this->assertStringStartsWith('ana gave you', $mailer->sent[5][0], 'the next person is in the forum\'s language again');
+        $this->assertSame('en', $translator->getLocale(), 'the locale is put back');
+    }
+
+    #[Test]
+    public function the_hourly_reminders_cost_the_same_queries_for_one_card_or_twenty(): void
+    {
+        $run = function (): int {
+            $command = $this->app()->getContainer()->make(\ErnestDefoe\Corkboard\Console\DueCommand::class);
+            $command->setLaravel($this->app()->getContainer());
+
+            return $this->queries(fn () => $command->run(new \Symfony\Component\Console\Input\ArrayInput([]), new \Symfony\Component\Console\Output\NullOutput()));
+        };
+        $soon = Carbon::now()->addHours(3);
+        $this->cards(1000, 1, ['due_at' => $soon]);
+        $this->database()->table('corkboard_assignees')->insert(['card_id' => 1000, 'user_id' => 4]);
+        $run();
+        $this->database()->table('notifications')->delete();
+        $this->database()->table('corkboard_cards')->update(['due_notified_at' => null]);
+        $one = $run();
+
+        $this->database()->table('notifications')->delete();
+        $this->database()->table('corkboard_cards')->update(['due_notified_at' => null]);
+        $this->cards(2000, 19, ['due_at' => $soon]);
+        $rows = [];
+        for ($i = 2000; $i < 2019; $i++) {
+            $rows[] = ['card_id' => $i, 'user_id' => 4 + $i % 2];
+        }
+        $this->database()->table('corkboard_assignees')->insert($rows);
+        $twenty = $run();
+        $this->assertSame(20, $this->database()->table('notifications')->where('type', 'corkboardDueSoon')->count());
+        // Core's NotificationSyncer runs three queries per card (find, compare, insert); Corkboard's
+        // own lookups (people, groups, team rows, assignees, outbox) don't grow with the cards.
+        $this->assertLessThanOrEqual(3, ($twenty - $one) / 19, "$one queries for one card, $twenty for twenty");
+    }
+
+    #[Test]
+    public function a_page_of_comments_works_out_roles_once(): void
+    {
+        $db = $this->database();
+        $now = Carbon::now();
+        $list = fn () => $this->queries(fn () => $this->assertSame(200, $this->read('comments', '', 4)[0]));
+        $db->table('corkboard_comments')->insert(['card_id' => 200, 'user_id' => 3, 'content' => '<t>One</t>', 'created_at' => $now]);
+        $list();
+        $one = $list();
+        // Comments on four boards marc can see.
+        foreach ([100, 300, 400] as $card) {
+            $db->table('corkboard_comments')->insert(['card_id' => $card, 'user_id' => 3, 'content' => '<t>Note</t>', 'created_at' => $now]);
+        }
+        $this->assertSame($one, $list());
+        [, $json] = $this->read('comments', '', 4);
+        $this->assertSame([false, false, false, false], array_column(array_column($json['data'], 'attributes'), 'canDelete'), 'marc manages none of them');
+        [, $json] = $this->read('comments', '', 3);
+        $this->assertSame([true, true, true, true], array_column(array_column($json['data'], 'attributes'), 'canDelete'), 'ana owns them all');
+    }
+
+    #[Test]
+    public function a_refusal_arrives_translated_on_its_field(): void
+    {
+        $this->english();
+        [$status, , $raw] = $this->write('PATCH', 'cards', 200, 3, ['title' => '   ']);
+        $this->assertSame(422, $status);
+        $error = json_decode($raw, true)['errors'][0];
+        $this->assertSame('Give the card a title of up to 160 characters.', $error['detail']);
+        $this->assertSame('/data/attributes/title', $error['source']['pointer']);
+        $this->assertSame('validation_error', $error['code']);
+    }
+
+    #[Test]
+    public function a_due_date_that_isnt_a_date_is_a_422(): void
+    {
+        [$status, , $raw] = $this->write('PATCH', 'cards', 200, 3, ['dueAt' => 'next tuesday-ish']);
+        $this->assertSame(422, $status, $raw);
+        $this->assertNull($this->database()->table('corkboard_cards')->where('id', 200)->value('due_at'));
+        $this->assertSame(200, $this->write('PATCH', 'cards', 200, 3, ['dueAt' => '2030-04-17T15:00:00Z'])[0]);
+    }
+
+    #[Test]
+    public function only_the_throttled_kinds_of_change_count_toward_the_flood_limit(): void
+    {
+        // Forty drags in the last minute: reorganising never blocks adding a card.
+        $rows = array_fill(0, 40, ['board_id' => 2, 'card_id' => 200, 'user_id' => 4, 'type' => 'card_moved', 'created_at' => Carbon::now()]);
+        $this->database()->table('corkboard_activity')->insert($rows);
+        $this->assertSame(201, $this->write('POST', 'cards', null, 4, ['boardId' => 2, 'columnId' => 21, 'title' => 'Still allowed'])[0]);
+        $rows = array_fill(0, 30, ['board_id' => 2, 'card_id' => 200, 'user_id' => 4, 'type' => 'comment_added', 'created_at' => Carbon::now()]);
+        $this->database()->table('corkboard_activity')->insert($rows);
+        $this->assertSame(429, $this->write('POST', 'cards', null, 4, ['boardId' => 2, 'columnId' => 21, 'title' => 'Too many'])[0]);
+    }
+
+    #[Test]
+    public function hidden_groups_are_named_on_a_team_to_moderators_only(): void
+    {
+        $this->database()->table('groups')->where('id', 10)->update(['is_hidden' => true]);
+        [, $json] = $this->read('boards', '/2', 4);
+        $this->assertSame([null, null, true], [$json['data']['attributes']['view']['groups'][10]['name'], $json['data']['attributes']['view']['groups'][10]['count'], $json['data']['attributes']['view']['groups'][10]['hidden']]);
+        $this->assertStringNotContainsString('Volunteers', $this->read('boards', '/2', 3)[2]);
+        $this->write('PATCH', 'members', 2, 3, ['role' => 'editor']);
+        $this->assertStringNotContainsString('Volunteers', $this->call('GET', '/activity?board=2', 4)[2]);
+        [, $json] = $this->read('boards', '/2', 6);
+        $this->assertSame(['Volunteers', 1], [$json['data']['attributes']['view']['groups'][10]['name'], $json['data']['attributes']['view']['groups'][10]['count']]);
+    }
+
+    #[Test]
+    public function a_board_change_with_a_status_is_all_or_nothing(): void
+    {
+        // Marc edits board 2 but can't complete it: nothing of the change is kept.
+        [$status] = $this->write('PATCH', 'boards', 2, 4, ['status' => 'completed', 'title' => 'Renamed']);
+        $this->assertSame(403, $status);
+        $this->assertSame(['Board 2', 'active'], array_values((array) $this->database()->table('corkboard_boards')->where('id', 2)->first(['title', 'status'])));
+        // A transfer to someone who can't see it fails after the title was set: rolled back.
+        [$status] = $this->write('PATCH', 'boards', 2, 3, ['title' => 'Renamed', 'ownerId' => 2]);
+        $this->assertSame(422, $status);
+        $this->assertSame('Board 2', $this->database()->table('corkboard_boards')->where('id', 2)->value('title'));
+        // Ana renames and completes it in one go; and reopens and renames the closed board 5.
+        $this->assertSame(200, $this->write('PATCH', 'boards', 2, 3, ['title' => 'Done and dusted', 'status' => 'completed'])[0]);
+        $this->assertSame(['Done and dusted', 'completed'], array_values((array) $this->database()->table('corkboard_boards')->where('id', 2)->first(['title', 'status'])));
+        $this->assertSame(200, $this->write('PATCH', 'boards', 5, 3, ['status' => 'active', 'title' => 'Back on'])[0]);
+        $this->assertSame(['Back on', 'active'], array_values((array) $this->database()->table('corkboard_boards')->where('id', 5)->first(['title', 'status'])));
+    }
+
+    #[Test]
+    public function a_forum_from_before_the_split_migrations_keeps_its_tables(): void
+    {
+        $this->app();
+        $schema = $this->database()->getSchemaBuilder();
+        $this->database()->table('migrations')->insert([
+            ['migration' => '2026_11_13_000000_create_corkboard_tables', 'extension' => 'ernestdefoe-corkboard'],
+            ['migration' => '2026_11_13_000001_add_corkboard_feed_token_to_users', 'extension' => 'ernestdefoe-corkboard'],
+        ]);
+        $this->database()->table('corkboard_cards')->where('id', 200)->update(['title' => 'Kept']);
+        // Every table already exists: each split migration leaves it (and its rows) alone.
+        foreach (glob(__DIR__.'/../../../migrations/2026_11_12_*.php') ?: [] as $file) {
+            (require $file)['up']($schema);
+        }
+        $this->assertSame('Kept', $this->database()->table('corkboard_cards')->where('id', 200)->value('title'));
+        // The removed files' rows are forgotten, so a rollback never asks for a file that's gone:
+        // every row Corkboard has in the migrations table names a file that exists.
+        (require __DIR__.'/../../../migrations/2026_11_19_000005_forget_removed_corkboard_migrations.php')['up']($schema);
+        foreach ($this->database()->table('migrations')->where('extension', 'ernestdefoe-corkboard')->pluck('migration') as $name) {
+            $this->assertFileExists(__DIR__."/../../../migrations/$name.php");
+        }
     }
 }

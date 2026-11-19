@@ -6,9 +6,9 @@
  * My cards and Due soon widgets for fof/widgets-core (and Bespoke through it) and Page Builder.
  *
  * Reads go through one visibility rule (Scope\BoardVisibility; cards follow their board) and
- * one role rule (Access). The board API is plain JSON under /api/corkboard (src/Api): one slim
- * answer per board at a fixed query count, and a drag is one change that answers with the board's
- * new version. The README says why that isn't JSON:API.
+ * one role rule (Access). Boards, columns, labels, cards, comments, checklist items and team rows
+ * are JSON:API resources; a board's read is one slim answer at a fixed query count (its `view`),
+ * and a drag is one card update that answers with the board's new version.
  *
  * 🚨 String literals only below, never a class constant read at load time (Settings::KEY): it
  * autoloads during boot and fatals every request while a deploy is swapping composer's autoload
@@ -47,67 +47,52 @@ return [
     (new Extend\View())
         ->namespace('ernestdefoe-corkboard', __DIR__.'/views'),
 
+    // Boards, columns, labels, cards, comments, checklist items and team rows are JSON:API
+    // resources (/api/corkboard-boards, …): every list and read goes through the one visibility
+    // rule, every write through the services (src/Api/*Resource.php).
+    new Extend\ApiResource(Api\BoardResource::class),
+    new Extend\ApiResource(Api\ColumnResource::class),
+    new Extend\ApiResource(Api\LabelResource::class),
+    new Extend\ApiResource(Api\CardResource::class),
+    new Extend\ApiResource(Api\CommentResource::class),
+    new Extend\ApiResource(Api\ChecklistItemResource::class),
+    new Extend\ApiResource(Api\MemberResource::class),
+
+    // What isn't a create, read, update or delete: one handler each (src/Api/Handler). The card
+    // lists (my cards, due soon, a column's next cards) are filters on corkboard-cards, template
+    // boards a tab of corkboard-boards, the built-in templates a forum attribute.
     (new Extend\Routes('api'))
-        ->get('/corkboard/boards', 'corkboard.boards.index', Api\BoardsController::class)
-        ->post('/corkboard/boards', 'corkboard.boards.create', Api\BoardsController::class)
-        ->get("/corkboard/boards/$board", 'corkboard.boards.show', Api\BoardsController::class)
-        ->patch("/corkboard/boards/$board", 'corkboard.boards.update', Api\BoardsController::class)
-        ->delete("/corkboard/boards/$board", 'corkboard.boards.delete', Api\BoardsController::class)
-        ->post("/corkboard/boards/$board/clone", 'corkboard.boards.clone', Api\BoardsController::class)
-        ->get("/corkboard/boards/$board/version", 'corkboard.boards.version', Api\BoardsController::class)
-        ->get("/corkboard/boards/$board/cards", 'corkboard.boards.cards', Api\BoardsController::class)
-        ->post("/corkboard/boards/$board/pin", 'corkboard.boards.pin', Api\BoardsController::class)
-        ->post("/corkboard/boards/$board/moving", 'corkboard.boards.moving', Api\BoardsController::class)
-        ->get('/corkboard/templates', 'corkboard.boards.templates', Api\BoardsController::class)
+        ->post("/corkboard/boards/$board/clone", 'corkboard.boards.clone', Api\Handler\CloneBoard::class)
+        ->get("/corkboard/boards/$board/version", 'corkboard.boards.version', Api\Handler\BoardVersion::class)
+        ->post("/corkboard/boards/$board/pin", 'corkboard.boards.pin', Api\Handler\PinBoard::class)
+        ->post("/corkboard/boards/$board/moving", 'corkboard.boards.moving', Api\Handler\Moving::class)
+        ->get('/corkboard/people', 'corkboard.people', Api\Handler\SearchPeople::class)
+        ->get('/corkboard/activity', 'corkboard.activity', Api\Handler\Activity::class)
 
-        ->get("/corkboard/boards/$board/activity", 'corkboard.team.activity', Api\TeamController::class)
-        ->post("/corkboard/boards/$board/members", 'corkboard.team.add', Api\TeamController::class)
-        ->patch('/corkboard/members/{id:\d+}', 'corkboard.team.role', Api\TeamController::class)
-        ->delete('/corkboard/members/{id:\d+}', 'corkboard.team.remove', Api\TeamController::class)
-        ->get('/corkboard/people', 'corkboard.team.people', Api\TeamController::class)
+        ->post('/corkboard/cards/{id:\d+}/clone', 'corkboard.cards.clone', Api\Handler\CloneCard::class)
+        ->post('/corkboard/cards/{id:\d+}/discussion', 'corkboard.cards.discussion', Api\Handler\StartDiscussion::class)
 
-        ->post("/corkboard/boards/$board/columns", 'corkboard.structure.addColumn', Api\StructureController::class)
-        ->patch('/corkboard/columns/{id:\d+}', 'corkboard.structure.editColumn', Api\StructureController::class)
-        ->delete('/corkboard/columns/{id:\d+}', 'corkboard.structure.deleteColumn', Api\StructureController::class)
-        ->post("/corkboard/boards/$board/labels", 'corkboard.structure.addLabel', Api\StructureController::class)
-        ->patch('/corkboard/labels/{id:\d+}', 'corkboard.structure.editLabel', Api\StructureController::class)
-        ->delete('/corkboard/labels/{id:\d+}', 'corkboard.structure.deleteLabel', Api\StructureController::class)
+        ->get('/corkboard/progress/{id:\d+}', 'corkboard.widgets.progress', Api\Handler\BoardProgress::class)
 
-        ->post("/corkboard/boards/$board/cards", 'corkboard.cards.create', Api\CardsController::class)
-        ->get('/corkboard/cards/{id:\d+}', 'corkboard.cards.show', Api\CardsController::class)
-        ->patch('/corkboard/cards/{id:\d+}', 'corkboard.cards.update', Api\CardsController::class)
-        ->delete('/corkboard/cards/{id:\d+}', 'corkboard.cards.delete', Api\CardsController::class)
-        ->post('/corkboard/cards/{id:\d+}/clone', 'corkboard.cards.clone', Api\CardsController::class)
-        ->post('/corkboard/cards/{id:\d+}/discussion', 'corkboard.cards.discussion', Api\CardsController::class)
-        ->get('/corkboard/cards/{id:\d+}/comments', 'corkboard.cards.comments', Api\CardsController::class)
-        ->post('/corkboard/cards/{id:\d+}/comments', 'corkboard.cards.comment', Api\CardsController::class)
-        ->patch('/corkboard/comments/{id:\d+}', 'corkboard.cards.editComment', Api\CardsController::class)
-        ->delete('/corkboard/comments/{id:\d+}', 'corkboard.cards.deleteComment', Api\CardsController::class)
-        ->get('/corkboard/cards/{id:\d+}/activity', 'corkboard.cards.activity', Api\CardsController::class)
-        ->post('/corkboard/cards/{id:\d+}/checklist', 'corkboard.cards.addItem', Api\CardsController::class)
-        ->patch('/corkboard/checklist/{id:\d+}', 'corkboard.cards.editItem', Api\CardsController::class)
-        ->delete('/corkboard/checklist/{id:\d+}', 'corkboard.cards.deleteItem', Api\CardsController::class)
+        ->get('/corkboard/feed-token', 'corkboard.feed.token', Api\Handler\FeedToken::class)
+        ->post('/corkboard/feed-token', 'corkboard.feed.renewToken', Api\Handler\RenewFeedToken::class)
+        ->get('/corkboard/feed/{token:[A-Za-z0-9]{40}}', 'corkboard.feed.ics', Api\Handler\CalendarFeed::class),
 
-        ->get('/corkboard/my-cards', 'corkboard.widgets.mine', Api\WidgetsController::class)
-        ->get('/corkboard/due-soon', 'corkboard.widgets.dueSoon', Api\WidgetsController::class)
-        ->get('/corkboard/progress/{id:\d+}', 'corkboard.widgets.progress', Api\WidgetsController::class)
+    // A Refusal (a plain-language "no" on one field) answers 422 with its sentence translated.
+    (new Extend\Middleware('api'))
+        ->add(\ErnestDefoe\Corkboard\Http\TranslateRefusals::class),
+    (new Extend\ErrorHandling())
+        ->type(\ErnestDefoe\Corkboard\Refusal::class, 'validation_error'),
 
-        ->get('/corkboard/feed-token', 'corkboard.feed.token', Api\FeedController::class)
-        ->post('/corkboard/feed-token', 'corkboard.feed.renewToken', Api\FeedController::class)
-        ->get('/corkboard/feed/{token:[A-Za-z0-9]{40}}', 'corkboard.feed.ics', Api\FeedController::class),
-
-    // Writes that tell other people (cards, comments, boards, team): at most 30 a minute per member.
+    // Creating cards, comments, boards and team rows, cloning, and starting a discussion from a card:
+    // refused once a member made 30 of those in the last minute (other changes don't count).
     (new Extend\ThrottleApi())
-        ->set('corkboard', fn ($request) => resolve(\ErnestDefoe\Corkboard\Throttle::class)($request)),
+        ->set('corkboard', \ErnestDefoe\Corkboard\Throttle::class),
 
     (new Extend\ModelVisibility(Board::class))
         ->scope(\ErnestDefoe\Corkboard\Scope\BoardVisibility::class),
     (new Extend\ModelVisibility(Card::class))
         ->scope(\ErnestDefoe\Corkboard\Scope\CardVisibility::class),
-
-    // Only so notifications can carry their subject (no endpoints).
-    new Extend\ApiResource(Api\CardResource::class),
-    new Extend\ApiResource(Api\BoardResource::class),
 
     // Alerts are core's; their email goes through Corkboard's outbox (Mail\Outbox), one email per
     // person every few minutes. The digest's own switch (its unsubscribe link) stops all of it.
@@ -167,6 +152,7 @@ return [
 
     (new Extend\Conditional())
         ->whenExtensionEnabled('flarum-tags', fn () => [new \ErnestDefoe\Corkboard\Integration('flarum-tags')])
+        ->whenExtensionEnabled('flarum-realtime', fn () => [new \ErnestDefoe\Corkboard\Integration('flarum-realtime')])
         ->whenExtensionEnabled('flarum-nicknames', fn () => [new \ErnestDefoe\Corkboard\Integration('flarum-nicknames')])
         ->whenExtensionEnabled('ernestdefoe-projects', fn () => [new \ErnestDefoe\Corkboard\Integration('ernestdefoe-projects')])
         ->whenExtensionEnabled('flarum-gdpr', fn () => [

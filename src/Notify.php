@@ -8,6 +8,8 @@ use ErnestDefoe\Corkboard\Notification\CardBlueprint;
 use Flarum\Notification\NotificationSyncer;
 use Flarum\User\User;
 use Illuminate\Database\ConnectionInterface;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
+use Illuminate\Support\Collection;
 
 /**
  * Sends Corkboard's alerts, and queues their emails in the outbox (Mail\Outbox sends one email
@@ -31,23 +33,58 @@ class Notify
      */
     public function send(string $blueprint, Card|Board $subject, ?User $actor, iterable $users, int $ref): void
     {
-        $board = $subject instanceof Card ? $subject->board : $subject;
-        $ids = [];
-        foreach ($users as $user) {
-            $id = $user instanceof User ? $user->id : $user;
-            if ($id && (! $actor || (int) $id !== (int) $actor->id)) {
-                $ids[(int) $id] = true;
-            }
-        }
+        $ids = self::ids($users, $actor);
         if (! $ids) {
             return;
         }
+        $people = User::query()->whereIn('id', $ids)->with('groups')->get();
+        $this->queueEmail($this->deliver($blueprint, $subject, $actor, $people, $ref, null));
+    }
 
-        $recipients = $this->access->audience($board, User::query()->whereIn('id', array_keys($ids))->with('groups')->get())->all();
-        if (! $recipients) {
+    /**
+     * The same alert about many cards (the hourly reminders): everyone named and every board's team
+     * rows are read once for all of them, and the emails queued in one insert.
+     *
+     * @param class-string<CardBlueprint> $blueprint
+     * @param list<array{Card, list<int|null>, int}> $sends each card, who to tell, its ref
+     */
+    public function sendEach(string $blueprint, array $sends): void
+    {
+        $all = [];
+        foreach ($sends as [, $users]) {
+            $all = array_merge($all, self::ids($users, null));
+        }
+        if (! $all) {
             return;
         }
+        $people = User::query()->whereIn('id', array_unique($all))->with('groups')->get()->keyBy('id');
+        $boardIds = array_values(array_unique(array_map(fn (array $send) => $send[0]->board_id, $sends)));
+        $teams = $this->db->table('corkboard_members')->whereIn('board_id', $boardIds)->get(['board_id', 'user_id', 'group_id'])->groupBy('board_id');
 
+        $rows = [];
+        foreach ($sends as [$card, $users, $ref]) {
+            $mine = $people->only(self::ids($users, null))->values();
+            array_push($rows, ...$this->deliver($blueprint, $card, null, $mine, $ref, $teams[$card->board_id] ?? collect()));
+        }
+        $this->queueEmail($rows);
+    }
+
+    /**
+     * Alerts to those of these people who may see the board now, and the outbox rows for the ones
+     * who want it by email.
+     *
+     * @param class-string<CardBlueprint|BoardBlueprint> $blueprint
+     * @param EloquentCollection<int, User> $people loaded with their groups
+     * @param Collection<int, object>|null $team the board's team rows, if already read
+     * @return list<array<string, mixed>>
+     */
+    private function deliver(string $blueprint, Card|Board $subject, ?User $actor, EloquentCollection $people, int $ref, ?Collection $team): array
+    {
+        $board = $subject instanceof Card ? $subject->board : $subject;
+        $recipients = $this->access->audience($board, $people, $team)->all();
+        if (! $recipients) {
+            return [];
+        }
         $this->syncer->sync(new $blueprint($subject, $actor, $ref), $recipients);
 
         $type = $blueprint::getType();
@@ -64,9 +101,35 @@ class Notify
                 ];
             }
         }
+
+        return $rows;
+    }
+
+    /** @param list<array<string, mixed>> $rows */
+    private function queueEmail(array $rows): void
+    {
         if ($rows) {
             $this->db->table('corkboard_outbox')->insert($rows);
         }
+    }
+
+    /**
+     * The people to tell, never the one who did it.
+     *
+     * @param iterable<User|int|null> $users
+     * @return list<int>
+     */
+    private static function ids(iterable $users, ?User $actor): array
+    {
+        $ids = [];
+        foreach ($users as $user) {
+            $id = $user instanceof User ? $user->id : $user;
+            if ($id && (! $actor || (int) $id !== (int) $actor->id)) {
+                $ids[(int) $id] = true;
+            }
+        }
+
+        return array_keys($ids);
     }
 
     /**

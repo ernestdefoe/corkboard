@@ -155,14 +155,15 @@ class Access
      * checked for people the team rows don't already let in.
      *
      * @param Collection<int, User> $users
+     * @param \Illuminate\Support\Collection<int, object>|null $rows the board's team rows, if already read
      * @return Collection<int, User>
      */
-    public function audience(Board $board, Collection $users): Collection
+    public function audience(Board $board, Collection $users, ?\Illuminate\Support\Collection $rows = null): Collection
     {
         if ($board->deleted_at !== null || $users->isEmpty()) {
             return new Collection();
         }
-        $rows = $this->db->table('corkboard_members')->where('board_id', $board->id)->get(['user_id', 'group_id']);
+        $rows ??= $this->db->table('corkboard_members')->where('board_id', $board->id)->get(['user_id', 'group_id']);
         $byName = array_flip($rows->pluck('user_id')->filter()->map(fn ($id) => (int) $id)->all());
         $groups = $board->visibility === 'private' ? [] : $rows->pluck('group_id')->filter()->map(fn ($id) => (int) $id)->all();
 

@@ -77,11 +77,7 @@ class Structure
     private function fillColumn(Column $column, array $in, bool $creating): void
     {
         if ($creating || array_key_exists('title', $in)) {
-            $title = trim(preg_replace('/\s+/u', ' ', (string) ($in['title'] ?? '')) ?? '');
-            if ($title === '' || mb_strlen($title) > 80) {
-                throw Refusal::because('column_title', 'title');
-            }
-            $column->title = $title;
+            $column->title = Input::line($in['title'] ?? '', 80, 'column_title');
         }
         if (array_key_exists('isDone', $in)) {
             $column->is_done = (bool) $in['isDone'];
@@ -93,7 +89,7 @@ class Structure
             $column->auto_archive_days = $in['autoArchiveDays'] ? max(1, min(365, (int) $in['autoArchiveDays'])) : null;
         }
         if (array_key_exists('color', $in)) {
-            $column->color = is_string($in['color']) && preg_match('/^#[0-9a-fA-F]{6}$/', $in['color']) ? $in['color'] : null;
+            $column->color = Input::color($in['color']);
         }
     }
 
@@ -138,8 +134,9 @@ class Structure
         if (array_key_exists('name', $in)) {
             $label->name = mb_substr(trim((string) $in['name']), 0, 40);
         }
-        if (array_key_exists('color', $in) && is_string($in['color']) && preg_match('/^#[0-9a-fA-F]{6}$/', $in['color'])) {
-            $label->color = $in['color'];
+        $color = Input::color($in['color'] ?? null);
+        if ($color !== null) {
+            $label->color = $color;
         }
     }
 }

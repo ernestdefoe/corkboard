@@ -69,11 +69,23 @@ export function registerEditorWidgets(app: any, extension: string, widgets: Edit
       add.extend(app, extension);
     }
 
-    const config = this.config || {};
-    const disabled: string[] = config.disabled || [];
-    const unplaced = widgets
-      .map((w) => `${extension}:${w.key}`)
-      .filter((id) => !disabled.includes(id) && !(config.instances || []).some((i: any) => i?.id === id));
-    config.disabled = [...disabled, ...unplaced];
+    listUnplacedAsAvailable(this, extension, widgets);
   });
+}
+
+/**
+ * 🚨 The one place Corkboard touches FoF Widgets' internals: the editor's own `config`
+ * (`{ instances, disabled }`, read as the editor opens), which isn't a documented API and may
+ * change in any FoF release. A widget no saved layout places is added to `config.disabled`, so
+ * the editor lists it as available instead of drawing it in a section. If the shape changes
+ * this does nothing (the widgets still register; they just show placed in the editor until
+ * saved). To go once FoF Widgets has its own opt-in / default-disabled option.
+ */
+function listUnplacedAsAvailable(editor: any, extension: string, widgets: EditorWidget[]): void {
+  const config = editor.config;
+  if (!config || typeof config !== 'object') return;
+  const disabled: string[] = Array.isArray(config.disabled) ? config.disabled : [];
+  const instances: any[] = Array.isArray(config.instances) ? config.instances : [];
+  const unplaced = widgets.map((w) => `${extension}:${w.key}`).filter((id) => !disabled.includes(id) && !instances.some((i: any) => i?.id === id));
+  config.disabled = [...disabled, ...unplaced];
 }

@@ -2,7 +2,7 @@ import Component from 'flarum/common/Component';
 import Button from 'flarum/common/components/Button';
 import LoadingIndicator from 'flarum/common/components/LoadingIndicator';
 import type Mithril from 'mithril';
-import { ago, Avatar, call, t, tx, type Group, type Person } from '../util';
+import { ago, Avatar, call, groupName, t, tx, type Group, type Person } from '../util';
 import type { BoardState } from './BoardState';
 
 interface Page {
@@ -31,8 +31,8 @@ export default class ActivityList extends Component<{ state: BoardState; cardId?
 
   load(before?: number): void {
     this.loading = true;
-    const path = this.attrs.cardId ? `/cards/${this.attrs.cardId}/activity` : `/boards/${this.attrs.state.id}/activity`;
-    call<Page>('GET', path, undefined, before ? { before } : {}, true)
+    const of = this.attrs.cardId ? { card: this.attrs.cardId } : { board: this.attrs.state.id };
+    call<Page>('GET', '/activity', undefined, { ...of, ...(before ? { before } : {}) }, true)
       .then((page) => {
         this.items = before ? [...this.items, ...page.items] : page.items;
         Object.assign(this.users, page.users);
@@ -87,7 +87,7 @@ export default class ActivityList extends Component<{ state: BoardState; cardId?
       to: column(d.to),
       column: d.col ? column(d.col) : d.t || tx('activity.a_column'),
       people: names(d.u),
-      group: d.g ? this.groups[d.g]?.name || '' : '',
+      group: d.g ? groupName(this.groups[d.g]) : '',
       role: d.r ? tx('role.' + d.r) : '',
       priority: d.p ? tx('priority.' + d.p) : '',
       due: d.d ? new Date(d.d).toLocaleDateString() : tx('activity.no_date'),

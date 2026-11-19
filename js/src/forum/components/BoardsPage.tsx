@@ -6,7 +6,7 @@ import Link from 'flarum/common/components/Link';
 import LoadingIndicator from 'flarum/common/components/LoadingIndicator';
 import classList from 'flarum/common/utils/classList';
 import type Mithril from 'mithril';
-import { ago, Avatar, boardUrl, call, t, tx, VISIBILITY_ICON, type Person, type Visibility } from '../util';
+import { ago, Avatar, boardList, boardUrl, t, templateList, tx, VISIBILITY_ICON, type Person, type Visibility } from '../util';
 import { IndexSidebar, PageStructure } from './core';
 import CreateBoardModal, { type Template } from './CreateBoardModal';
 
@@ -52,17 +52,21 @@ export default class BoardsPage extends Page {
     this.tab = tab && ['mine', 'all', 'completed', 'archived', 'templates'].includes(tab) ? tab : app.session.user ? 'mine' : 'all';
     this.load(0);
     if (app.session.user) {
-      call('GET', '/templates', undefined, undefined, true).then((tpl) => {
-        this.templates = tpl;
-        m.redraw();
-      });
+      templateList()
+        .then((tpl) => {
+          this.templates = tpl;
+          m.redraw();
+        })
+        .catch(() => {
+          /* a quiet read: no template row until the next visit */
+        });
     }
   }
 
   load(page: number): void {
     const ticket = ++this.ticket;
     this.loading = true;
-    call('GET', '/boards', undefined, { tab: this.tab, q: this.query || undefined, page }, true)
+    boardList({ tab: this.tab, q: this.query || undefined }, page)
       .then((answer) => {
         if (ticket !== this.ticket) return;
         this.boards = page ? [...this.boards, ...answer.boards] : answer.boards;
@@ -107,32 +111,7 @@ export default class BoardsPage extends Page {
             </Button>
           ) : null}
         </div>
-        <div className="CorkboardBoardsPage-toolbar">
-          <div className="CorkboardSegments" role="tablist">
-            {tabs.map((tab) => (
-              <button
-                role="tab"
-                aria-selected={this.tab === tab ? 'true' : 'false'}
-                className={classList('CorkboardSegments-tab', this.tab === tab && 'is-active')}
-                onclick={() => this.setTab(tab)}
-              >
-                {t('list.tab_' + tab)}
-              </button>
-            ))}
-          </div>
-          <input
-            className="FormControl CorkboardBoardsPage-search"
-            type="search"
-            placeholder={tx('list.search')}
-            aria-label={tx('list.search')}
-            value={this.query}
-            oninput={(e: Event) => {
-              this.query = (e.target as HTMLInputElement).value;
-              clearTimeout(this.timer);
-              this.timer = window.setTimeout(() => this.load(0), 250);
-            }}
-          />
-        </div>
+        {this.toolbar(tabs)}
         {this.pinned.length && !this.query && (this.tab === 'mine' || this.tab === 'all') ? this.section(tx('list.pinned'), this.pinned) : null}
         {rest.length ? this.section(this.pinned.length && !this.query ? tx('list.tab_' + this.tab) : null, rest) : null}
         {this.loading ? <LoadingIndicator display="block" /> : null}
@@ -146,6 +125,38 @@ export default class BoardsPage extends Page {
         ) : null}
         {canCreate && this.templates && this.tab === 'mine' ? this.templateRow() : null}
       </PageStructure>
+    );
+  }
+
+  /** The tabs and the search field. */
+  toolbar(tabs: Tab[]): Mithril.Children {
+    return (
+      <div className="CorkboardBoardsPage-toolbar">
+        <div className="CorkboardSegments" role="tablist">
+          {tabs.map((tab) => (
+            <button
+              role="tab"
+              aria-selected={this.tab === tab ? 'true' : 'false'}
+              className={classList('CorkboardSegments-tab', this.tab === tab && 'is-active')}
+              onclick={() => this.setTab(tab)}
+            >
+              {t('list.tab_' + tab)}
+            </button>
+          ))}
+        </div>
+        <input
+          className="FormControl CorkboardBoardsPage-search"
+          type="search"
+          placeholder={tx('list.search')}
+          aria-label={tx('list.search')}
+          value={this.query}
+          oninput={(e: Event) => {
+            this.query = (e.target as HTMLInputElement).value;
+            clearTimeout(this.timer);
+            this.timer = window.setTimeout(() => this.load(0), 250);
+          }}
+        />
+      </div>
     );
   }
 

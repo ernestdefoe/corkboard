@@ -1,5 +1,5 @@
 import app from 'flarum/forum/app';
-import { call, type Group, type Person, type Role, type SlimCard, type Visibility } from '../util';
+import { call, read, type Group, type Person, type Role, type SlimCard, type Visibility } from '../util';
 
 export interface Column {
   id: number;
@@ -101,7 +101,7 @@ export class BoardState {
 
   load(): Promise<void> {
     this.loading = !this.data;
-    return call<BoardPayload>('GET', `/boards/${this.id}`, undefined, undefined, true)
+    return read<BoardPayload>('boards', this.id)
       .then((data) => {
         this.data = data;
         this.error = null;

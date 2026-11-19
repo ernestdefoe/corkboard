@@ -49,12 +49,12 @@ php flarum cache:clear
 | Make a board public | Moderators |
 | See and manage every board | Moderators |
 
-## Why the board API isn't JSON:API
+## The API
 
-Cards and boards are also Flarum API resources, so notifications can carry them. The board itself is read and changed through plain JSON endpoints under `/api/corkboard`, on purpose:
+Boards, columns, labels, cards, comments, checklist items and team rows are Flarum JSON:API resources (`/api/corkboard-boards`, `/api/corkboard-cards`, …). Lists are filters on those resources: My cards, Due soon and a big column's next cards on `/api/corkboard-cards` (`filter[mine]`, `filter[dueWithin]`, `filter[column]`), template boards as `/api/corkboard-boards?filter[tab]=templates`; the built-in templates come with the forum. What isn't a create, read or list (cloning, pinning, the version poll, history, people search, the progress widget, the calendar feed) is a small endpoint of its own under `/api/corkboard`.
 
-- **One answer per board.** Opening a board is one request that costs the same ten queries for 1 card or 300 (an integration test holds it to that), in a slim shape: no descriptions, checklists or comments until a card opens. A JSON:API document of the same board repeats every relationship and runs each field per card.
-- **Moves are one change.** A drag sends the card, the column and the card it goes after; the server places it and answers with the board's new version, which is what open boards poll and the realtime push carries.
-- **One read rule.** Every endpoint goes through the same visibility scope (a card follows its board) and the same role check, so a card on a board you can't see is a 404 everywhere.
+- **One answer per board.** Opening a board is one request (`GET /api/corkboard-boards/{id}`, its `view`) that costs the same queries for 1 card or 300 (an integration test holds it to that), in a slim shape: no descriptions, checklists or comments until a card opens.
+- **Moves are one change.** A drag is one card update with the column and the card it goes after; the server places it and answers with the board's new version, which is what open boards poll and the realtime push carries.
+- **One read rule.** Every list, read and write goes through the same visibility scope (columns, labels, cards and team rows follow their board; comments and checklist items their card) and the same role check, so a card on a board you can't see is a 404 everywhere.
 
 MIT licensed. ☕ [Buy me a coffee](https://buymeacoffee.com/ernestdefoe)

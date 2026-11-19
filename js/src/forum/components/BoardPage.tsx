@@ -6,16 +6,17 @@ import Link from 'flarum/common/components/Link';
 import LoadingIndicator from 'flarum/common/components/LoadingIndicator';
 import classList from 'flarum/common/utils/classList';
 import type Mithril from 'mithril';
-import { Avatar, boardUrl, call, t, tx, VISIBILITY_ICON, type SlimCard } from '../util';
+import { boardUrl, call, cardList, errorText, t, tx, write, type SlimCard } from '../util';
 import { PageStructure } from './core';
 import { boardState, leaveBoard, sort, type BoardState, type Column } from './BoardState';
 import { BoardDrag, type DropTarget } from './drag';
 import { CardFace } from './CardFace';
 import CardModal from './CardModal';
 import ColumnModal from './ColumnModal';
-import ActivityModal from './ActivityModal';
+import { head } from './board/head';
+import { carriedKey, freeKey } from './board/keys';
 
-interface Filters {
+export interface Filters {
   q: string;
   mine: boolean;
   label: number | null;
@@ -142,52 +143,10 @@ export default class BoardPage extends Page {
     if (s.error) return this.missing();
     const data = s.data;
     if (!data) return <PageStructure className="CorkboardBoardPage" loading={true} />;
-    const b = data.board;
 
     return (
       <PageStructure className="CorkboardBoardPage">
-        <div className="CorkboardBoardPage-head" style={{ '--board-color': b.color }}>
-          <div className="CorkboardBoardPage-crumbs">
-            <Link href={app.route('corkboard.index')}>{t('nav')}</Link>
-            {b.project ? [' / ', <Link href={app.route('projects.show', { slug: b.project.slug })}>{b.project.title}</Link>] : null}
-          </div>
-          <div className="CorkboardBoardPage-titleRow">
-            <h1 className="CorkboardBoardPage-title">{b.title}</h1>
-            <span className={'CorkboardChip CorkboardChip--' + b.visibility}>
-              <Icon name={VISIBILITY_ICON[b.visibility]} />
-              {t('visibility.' + b.visibility)}
-            </span>
-            {s.live ? (
-              <span className="CorkboardLive" title={tx('board.live_help')}>
-                <span className="CorkboardLive-dot" />
-                {t('board.live')}
-              </span>
-            ) : null}
-            <span className="CorkboardBoardPage-spacer" />
-            {this.team()}
-            {app.session.user ? (
-              <Button
-                className="Button Button--icon"
-                icon={data.pinned ? 'fas fa-thumbtack' : 'fas fa-thumbtack'}
-                aria-label={tx(data.pinned ? 'board.unpin' : 'board.pin')}
-                aria-pressed={data.pinned ? 'true' : 'false'}
-                onclick={() => this.pin()}
-              />
-            ) : null}
-            <Button className="Button" icon="fas fa-clock-rotate-left" onclick={() => app.modal.show(ActivityModal, { board: s })}>
-              {t('board.activity')}
-            </Button>
-            {data.abilities.manage || data.abilities.reopen ? (
-              <Link className="Button" href={app.route('corkboard.settings', { id: `${b.id}-${b.slug}` })}>
-                <Icon name="fas fa-gear" className="Button-icon" />
-                <span className="Button-label">{t('board.settings')}</span>
-              </Link>
-            ) : null}
-          </div>
-          {b.description ? <p className="CorkboardBoardPage-description">{b.description}</p> : null}
-          {b.status !== 'active' ? this.closedBanner() : null}
-          {this.filterBar()}
-        </div>
+        {head(this)}
         {s.stale && !s.dragging ? (
           <button className="CorkboardStale" onclick={() => s.load()}>
             {t('board.stale')}
@@ -224,125 +183,6 @@ export default class BoardPage extends Page {
           </Link>
         </div>
       </PageStructure>
-    );
-  }
-
-  team(): Mithril.Children {
-    const data = this.state.data!;
-    const ids = [data.board.ownerId, ...data.members.filter((member) => member.userId).map((member) => member.userId)].filter(
-      (id, i, a) => id && a.indexOf(id) === i
-    ) as number[];
-    const groups = data.members
-      .filter((member) => member.groupId)
-      .map((member) => data.groups[member.groupId!])
-      .filter(Boolean);
-    if (!ids.length && !groups.length) return null;
-    return (
-      <div className="CorkboardTeam" aria-label={tx('board.team')}>
-        {ids.slice(0, 6).map((id) => (
-          <Avatar user={data.users[id]} size={30} ring />
-        ))}
-        {ids.length > 6 ? <span className="CorkboardTeam-more">+{ids.length - 6}</span> : null}
-        {groups.length ? <span className="CorkboardTeam-groups">+ {groups.map((g) => g.name).join(', ')}</span> : null}
-      </div>
-    );
-  }
-
-  closedBanner(): Mithril.Children {
-    const data = this.state.data!;
-    const b = data.board;
-    const when = b.status === 'completed' ? b.completedAt : b.archivedAt;
-    return (
-      <div className={'CorkboardClosed CorkboardClosed--' + b.status}>
-        <Icon name={b.status === 'completed' ? 'fas fa-flag-checkered' : 'fas fa-box-archive'} />
-        <span>{t('board.closed_' + b.status, { date: when ? new Date(when).toLocaleDateString() : '' })}</span>
-        {data.abilities.reopen ? (
-          <Button className="Button Button--primary" onclick={() => this.reopen()}>
-            {t('board.reopen')}
-          </Button>
-        ) : null}
-      </div>
-    );
-  }
-
-  filterBar(): Mithril.Children {
-    const data = this.state.data!;
-    const f = this.filters;
-    const done = data.board.doneCount;
-    const late = data.cards.filter((c) => !c.completedAt && c.dueAt && new Date(c.dueAt).getTime() < Date.now()).length;
-    // Core's Select markup, so it gets the theme's caret.
-    const select = (key: keyof Filters, options: Array<[string, any]>, label: string) => (
-      <span className={classList('Select CorkboardFilters-select', f[key] ? 'is-on' : '')}>
-        <select
-          className="Select-input FormControl"
-          aria-label={label}
-          value={String(f[key] ?? '')}
-          onchange={(e: Event) => this.setFilter(key, (e.target as HTMLSelectElement).value)}
-        >
-          {options.map(([value, text]) => (
-            <option value={value}>{text}</option>
-          ))}
-        </select>
-        <Icon name="fas fa-sort" className="Select-caret" />
-      </span>
-    );
-    return (
-      <div className={classList('CorkboardFilters', this.filtersOpen && 'is-open')}>
-        <button
-          className={classList('CorkboardToggle CorkboardFilters-toggle', this.filtering() && 'is-on')}
-          aria-expanded={this.filtersOpen ? 'true' : 'false'}
-          onclick={() => (this.filtersOpen = !this.filtersOpen)}
-        >
-          <Icon name="fas fa-filter" /> {t('board.filters')}
-        </button>
-        <input
-          className="FormControl CorkboardFilters-search"
-          type="search"
-          placeholder={tx('board.filter_placeholder')}
-          aria-label={tx('board.filter_placeholder')}
-          value={f.q}
-          oninput={(e: Event) => this.setFilter('q', (e.target as HTMLInputElement).value)}
-        />
-        {app.session.user ? (
-          <button
-            className={classList('CorkboardToggle', f.mine && 'is-on')}
-            aria-pressed={f.mine ? 'true' : 'false'}
-            onclick={() => this.setFilter('mine', !f.mine)}
-          >
-            {t('board.filter_mine')}
-          </button>
-        ) : null}
-        {data.labels.length
-          ? select(
-              'label',
-              [['', tx('board.filter_labels')], ...data.labels.map((l) => [String(l.id), l.name || tx('label.unnamed')] as [string, string])],
-              tx('board.filter_labels')
-            )
-          : null}
-        {select(
-          'due',
-          [
-            ['', tx('board.filter_due')],
-            ['late', tx('board.due_late')],
-            ['week', tx('board.due_week')],
-            ['none', tx('board.due_none')],
-          ],
-          tx('board.filter_due')
-        )}
-        {select(
-          'priority',
-          [['', tx('board.filter_priority')], ...['urgent', 'high', 'normal', 'low'].map((p) => [p, tx('priority.' + p)] as [string, string])],
-          tx('board.filter_priority')
-        )}
-        <button
-          className={classList('CorkboardToggle', f.hideDone && 'is-on')}
-          aria-pressed={f.hideDone ? 'true' : 'false'}
-          onclick={() => this.setFilter('hideDone', !f.hideDone)}
-        >
-          {t('board.filter_hide_done')}
-        </button>
-        <span className="CorkboardFilters-summary">{t('board.summary', { done, total: data.board.cardCount, late })}</span>
-      </div>
     );
   }
 
@@ -429,8 +269,6 @@ export default class BoardPage extends Page {
     const s = this.state;
     const data = s.data!;
     const cards = s.columnCards(column.id).filter((c) => c.id === this.picked?.id || this.matches(c));
-    const over = column.wipLimit && s.columnCards(column.id).length > column.wipLimit;
-    const full = column.wipLimit && s.columnCards(column.id).length === column.wipLimit;
     const target = this.dropTarget && this.dropTarget.columnId === column.id ? this.dropTarget : null;
 
     const list: Mithril.Children[] = [];
@@ -447,24 +285,7 @@ export default class BoardPage extends Page {
         key={column.id}
         aria-label={column.title}
       >
-        <header className="CorkboardColumn-head" style={column.color ? { borderTopColor: column.color } : {}}>
-          {column.isDone ? <Icon name="fas fa-check" className="CorkboardColumn-doneIcon" /> : null}
-          <h2 className="CorkboardColumn-title">{column.title}</h2>
-          <span
-            className={classList('CorkboardColumn-count', over && 'is-over', full && 'is-full')}
-            title={column.wipLimit ? tx('column.wip_help', { limit: column.wipLimit }) : undefined}
-          >
-            {this.countLabel(column)}
-          </span>
-          {data.abilities.manage ? (
-            <Button
-              className="Button Button--icon Button--link CorkboardColumn-menu"
-              icon="fas fa-ellipsis"
-              aria-label={tx('column.edit', { title: column.title })}
-              onclick={() => app.modal.show(ColumnModal, { board: s, column })}
-            />
-          ) : null}
-        </header>
+        {this.columnHead(column)}
         <div className="CorkboardColumn-list" data-ck-list>
           {list}
           {cards.length === 0 && !target ? (
@@ -478,6 +299,32 @@ export default class BoardPage extends Page {
         </div>
         {data.abilities.edit ? this.composer(column) : null}
       </section>
+    );
+  }
+
+  columnHead(column: Column): Mithril.Children {
+    const s = this.state;
+    const over = column.wipLimit && s.columnCards(column.id).length > column.wipLimit;
+    const full = column.wipLimit && s.columnCards(column.id).length === column.wipLimit;
+    return (
+      <header className="CorkboardColumn-head" style={column.color ? { borderTopColor: column.color } : {}}>
+        {column.isDone ? <Icon name="fas fa-check" className="CorkboardColumn-doneIcon" /> : null}
+        <h2 className="CorkboardColumn-title">{column.title}</h2>
+        <span
+          className={classList('CorkboardColumn-count', over && 'is-over', full && 'is-full')}
+          title={column.wipLimit ? tx('column.wip_help', { limit: column.wipLimit }) : undefined}
+        >
+          {this.countLabel(column)}
+        </span>
+        {s.data!.abilities.manage ? (
+          <Button
+            className="Button Button--icon Button--link CorkboardColumn-menu"
+            icon="fas fa-ellipsis"
+            aria-label={tx('column.edit', { title: column.title })}
+            onclick={() => app.modal.show(ColumnModal, { board: s, column })}
+          />
+        ) : null}
+      </header>
     );
   }
 
@@ -524,11 +371,15 @@ export default class BoardPage extends Page {
         </button>
       );
     }
+    return this.composerForm(column);
+  }
+
+  composerForm(column: Column): Mithril.Children {
     const save = () => {
       const title = this.addTitle.trim();
       if (!title) return;
       this.addTitle = '';
-      call('POST', `/boards/${this.state.id}/cards`, { columnId: column.id, title }).then((answer) => {
+      write('POST', 'cards', null, { boardId: this.state.id, columnId: column.id, title }).then((answer) => {
         this.state.card(answer);
         this.announce = tx('board.added', { title });
       });
@@ -567,77 +418,12 @@ export default class BoardPage extends Page {
   /** Arrow keys move focus; Space lifts and drops; with a card in the air, arrows carry it. */
   key(e: KeyboardEvent, card: SlimCard, column: Column): void {
     const s = this.state;
-    const data = s.data!;
-    const columns = data.columns;
+    const columns = s.data!.columns;
     const ci = columns.findIndex((c) => c.id === column.id);
     const list = s.columnCards(column.id).filter((c) => c.id === this.picked?.id || this.matches(c));
-    const i = list.findIndex((c) => c.id === card.id);
-
-    if (this.picked && this.picked.id === card.id) {
-      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-        e.preventDefault();
-        const j = i + (e.key === 'ArrowUp' ? -1 : 1);
-        if (j < 0 || j >= list.length) return;
-        this.carry(card, column, j > i ? list[j].id : j > 0 ? list[j - 1].id : null);
-      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-        e.preventDefault();
-        const to = columns[ci + (e.key === 'ArrowLeft' ? -1 : 1)];
-        if (!to) return;
-        const there = s.columnCards(to.id).filter((c) => this.matches(c));
-        const at = Math.min(i, there.length);
-        this.carry(card, to, at > 0 ? there[at - 1].id : null);
-      } else if (e.key === ' ' || e.key === 'Enter') {
-        e.preventDefault();
-        const picked = this.picked;
-        this.picked = null;
-        const after = this.afterOf(card);
-        this.announce = tx('keys.dropped', { title: card.title, column: column.title, position: i + 1, total: list.length });
-        if (card.columnId !== picked.columnId || card.position !== picked.position) this.move(card.id, card.columnId, after, false);
-        else s.dropped();
-        this.focusId = card.id;
-      } else if (e.key === 'Escape' || e.key === 'Tab') {
-        if (e.key === 'Escape') e.preventDefault();
-        card.columnId = this.picked.columnId;
-        card.position = this.picked.position;
-        data.cards = sort(data.cards);
-        this.picked = null;
-        s.dropped();
-        this.announce = tx('keys.cancelled', { title: card.title });
-        this.focusId = card.id;
-      }
-      return;
-    }
-
-    if (e.key === ' ' && data.abilities.edit && data.board.status === 'active') {
-      e.preventDefault();
-      this.picked = { id: card.id, columnId: card.columnId, position: card.position };
-      s.dragging = true;
-      this.announce = tx('keys.picked', {
-        title: card.title,
-        column: column.title,
-        col: ci + 1,
-        cols: columns.length,
-        position: i + 1,
-        total: list.length,
-      });
-      this.focusId = card.id;
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      this.openCard(card.id);
-    } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-      e.preventDefault();
-      const next = list[i + (e.key === 'ArrowUp' ? -1 : 1)];
-      if (next) this.focusId = next.id;
-    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-      e.preventDefault();
-      for (let k = ci + (e.key === 'ArrowLeft' ? -1 : 1); k >= 0 && k < columns.length; k += e.key === 'ArrowLeft' ? -1 : 1) {
-        const there = s.columnCards(columns[k].id).filter((c) => this.matches(c));
-        if (there.length) {
-          this.focusId = there[Math.min(i, there.length - 1)].id;
-          break;
-        }
-      }
-    }
+    const at = { columns, ci, list, i: list.findIndex((c) => c.id === card.id) };
+    if (this.picked && this.picked.id === card.id) carriedKey(this, e, card, column, at);
+    else freeKey(this, e, card, column, at);
   }
 
   /** Put the card in the air somewhere else (locally; saved on the drop). */
@@ -692,7 +478,7 @@ export default class BoardPage extends Page {
       if (column) this.announce = tx('keys.dropped_short', { title: card.title, column: column.title });
     }
     m.redraw();
-    call('PATCH', `/cards/${id}`, { columnId, afterId }, undefined, true)
+    write('PATCH', 'cards', id, { columnId, afterId }, true)
       .then((answer) => {
         s.card(answer);
         s.dropped();
@@ -707,14 +493,17 @@ export default class BoardPage extends Page {
 
   more(column: Column): void {
     const last = this.state.columnCards(column.id).slice(-1)[0];
-    call('GET', `/boards/${this.state.id}/cards`, undefined, { column: column.id, after: last?.position }).then((answer) => {
-      const data = this.state.data!;
-      const known = new Set(data.cards.map((c) => c.id));
-      data.cards = sort([...data.cards, ...answer.cards.filter((c: SlimCard) => !known.has(c.id))]);
-      Object.assign(data.users, answer.users);
-      column.more = Math.max(0, column.more - answer.cards.length);
-      m.redraw();
-    });
+    cardList({ column: column.id, after: last?.position }, 150).then(
+      (answer) => {
+        const data = this.state.data!;
+        const known = new Set(data.cards.map((c) => c.id));
+        data.cards = sort([...data.cards, ...answer.cards.filter((c: SlimCard) => !known.has(c.id))]);
+        Object.assign(data.users, answer.users);
+        column.more = Math.max(0, column.more - answer.cards.length);
+        m.redraw();
+      },
+      (error) => app.alerts.show({ type: 'error' }, errorText(error))
+    );
   }
 
   openCard(id: number): void {
@@ -744,7 +533,7 @@ export default class BoardPage extends Page {
   }
 
   reopen(): void {
-    call('PATCH', `/boards/${this.state.id}`, { status: 'active' }).then((answer) => this.state.replace(answer));
+    write('PATCH', 'boards', this.state.id, { status: 'active' }).then((answer) => this.state.replace(answer));
   }
 }
 

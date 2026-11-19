@@ -17,6 +17,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property Carbon|null $edited_at
  * @property Carbon|null $created_at
  * @property User|null $user
+ * @property Card $card
  */
 class Comment extends AbstractModel
 {
@@ -25,6 +26,12 @@ class Comment extends AbstractModel
     protected $casts = ['edited_at' => 'datetime', 'created_at' => 'datetime', 'updated_at' => 'datetime'];
 
     public $timestamps = true;
+
+    /** @return BelongsTo<Card, $this> */
+    public function card(): BelongsTo
+    {
+        return $this->belongsTo(Card::class, 'card_id');
+    }
 
     /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo

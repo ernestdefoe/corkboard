@@ -72,19 +72,41 @@ class Boards
         });
     }
 
-    /** @param array<string, mixed> $in */
+    /**
+     * Settings, owner and status in one change, all or nothing: the role is checked before
+     * anything is written, and it runs in one transaction. Reopening comes first (a closed board
+     * takes no other change); completing or archiving comes last, after the other fields.
+     *
+     * @param array<string, mixed> $in
+     */
     public function update(Board $board, User $actor, array $in): Board
     {
-        // Reopening is the one change a closed board takes.
-        if (isset($in['status'])) {
-            $this->status($board, $actor, (string) $in['status']);
-            unset($in['status']);
+        $status = isset($in['status']) ? (string) $in['status'] : null;
+        unset($in['status']);
+        $changesStatus = $status !== null && in_array($status, Board::STATUSES, true) && $status !== $board->status;
+        if (($changesStatus || $in) && ! $this->access->canManageClosed($board, $actor)) {
+            throw $this->access->role($board, $actor) === null ? new \Illuminate\Database\Eloquent\ModelNotFoundException() : new PermissionDeniedException();
         }
-        if (! $in) {
-            return $board;
-        }
-        $this->access->assert($board, $actor, 'manager');
 
+        return $this->db->transaction(function () use ($board, $actor, $in, $status, $changesStatus) {
+            if ($changesStatus && $status === 'active') {
+                $this->status($board, $actor, 'active');
+            }
+            if ($in) {
+                $this->settings($board, $actor, $in);
+            }
+            if ($changesStatus && $status !== 'active') {
+                $this->status($board, $actor, (string) $status);
+            }
+
+            return $board;
+        });
+    }
+
+    /** @param array<string, mixed> $in */
+    private function settings(Board $board, User $actor, array $in): void
+    {
+        $this->access->assert($board, $actor, 'manager');
         if (array_key_exists('ownerId', $in)) {
             $this->transfer($board, $actor, (int) $in['ownerId']);
         }
@@ -99,18 +121,10 @@ class Boards
         }
         $this->access->forget($board, $actor);
         $this->log->record($board, null, $actor, 'board_updated', ['f' => array_keys($in)]);
-
-        return $board;
     }
 
     private function status(Board $board, User $actor, string $status): void
     {
-        if (! in_array($status, Board::STATUSES, true) || $status === $board->status) {
-            return;
-        }
-        if (! $this->access->canManageClosed($board, $actor)) {
-            throw new PermissionDeniedException();
-        }
         $board->status = $status;
         $board->completed_at = $status === 'completed' ? Carbon::now() : null;
         $board->archived_at = $status === 'archived' ? Carbon::now() : null;
@@ -146,10 +160,7 @@ class Boards
     private function fill(Board $board, User $actor, array $in, bool $creating): void
     {
         if ($creating || array_key_exists('title', $in)) {
-            $title = trim(preg_replace('/\s+/u', ' ', (string) ($in['title'] ?? '')) ?? '');
-            if ($title === '' || mb_strlen($title) > 160) {
-                throw Refusal::because('title', 'title');
-            }
+            $title = Input::line($in['title'] ?? '', 160, 'title');
             $board->title = $title;
             $board->slug = Str::limit(Str::slug($title), 150, '') ?: '';
         }
@@ -158,8 +169,7 @@ class Boards
             $board->description = $text === '' ? null : mb_substr($text, 0, 1000);
         }
         if (array_key_exists('color', $in) || $creating) {
-            $color = (string) ($in['color'] ?? '#4d698e');
-            $board->color = preg_match('/^#[0-9a-fA-F]{6}$/', $color) ? $color : '#4d698e';
+            $board->color = Input::color($in['color'] ?? null) ?? '#4d698e';
         }
         if (array_key_exists('visibility', $in)) {
             $v = (string) $in['visibility'];
@@ -245,33 +255,53 @@ class Boards
             return;
         }
         $shift = is_numeric($opts['due'] ?? null) ? (int) $opts['due'] : null;
-        $cards = Card::query()->where('board_id', $from->id)->whereNull('archived_at')->whereNull('completed_at')->orderBy('position')->get();
+        $cards = Card::query()->where('board_id', $from->id)->whereNull('archived_at')->whereNull('completed_at')->orderBy('position')->orderBy('id')->get();
         foreach ($cards->chunk(100) as $chunk) {
-            $labels = $this->db->table('corkboard_card_label')->whereIn('card_id', $chunk->pluck('id'))->get()->groupBy('card_id');
-            $items = $this->db->table('corkboard_checklist')->whereIn('card_id', $chunk->pluck('id'))->orderBy('position')->get()->groupBy('card_id');
-            foreach ($chunk as $card) {
-                $copy = Card::query()->create([
-                    'board_id' => $to->id, 'column_id' => $columnMap[$card->column_id], 'position' => $card->position,
-                    'title' => $card->title, 'description' => $card->description, 'priority' => $card->priority,
-                    'due_at' => $shift !== null && $card->due_at ? $card->due_at->copy()->addDays($shift) : null,
-                    'due_all_day' => $card->due_all_day, 'user_id' => $to->owner_id, 'cover_color' => $card->cover_color,
-                    'checklist_total' => $card->checklist_total,
-                ]);
-                $pivot = [];
-                foreach ($labels[$card->id] ?? [] as $row) {
-                    if (isset($labelMap[$row->label_id])) {
-                        $pivot[] = ['card_id' => $copy->id, 'label_id' => $labelMap[$row->label_id]];
-                    }
-                }
-                $pivot && $this->db->table('corkboard_card_label')->insert($pivot);
-                $rows = [];
-                foreach ($items[$card->id] ?? [] as $item) {
-                    $rows[] = ['card_id' => $copy->id, 'text' => $item->text, 'is_done' => false, 'position' => $item->position, 'created_at' => Carbon::now(), 'updated_at' => Carbon::now()];
-                }
-                $rows && $this->db->table('corkboard_checklist')->insert($rows);
-            }
+            $this->copyCards($chunk->values(), $to, $columnMap, $labelMap, $shift);
         }
         $this->counters->board($to);
+    }
+
+    /**
+     * One chunk of cards in seven queries, whatever its size: their labels and checklists read in
+     * one query each, the cards in one insert, their new ids read back in insert order (nothing
+     * else writes to a board that's being made, inside this transaction), then every label pivot
+     * and checklist row in one insert each.
+     *
+     * @param \Illuminate\Support\Collection<int, Card> $chunk
+     * @param array<int, int> $columnMap
+     * @param array<int, int> $labelMap
+     */
+    private function copyCards(\Illuminate\Support\Collection $chunk, Board $to, array $columnMap, array $labelMap, ?int $shift): void
+    {
+        $ids = $chunk->pluck('id');
+        $labels = $this->db->table('corkboard_card_label')->whereIn('card_id', $ids)->get()->groupBy('card_id');
+        $items = $this->db->table('corkboard_checklist')->whereIn('card_id', $ids)->orderBy('position')->orderBy('id')->get()->groupBy('card_id');
+        $now = Carbon::now();
+        $last = (int) $this->db->table('corkboard_cards')->where('board_id', $to->id)->max('id');
+        $this->db->table('corkboard_cards')->insert($chunk->map(fn (Card $card) => [
+            'board_id' => $to->id, 'column_id' => $columnMap[$card->column_id], 'position' => $card->position,
+            'title' => $card->title, 'description' => $card->description, 'priority' => $card->priority,
+            'due_at' => $shift !== null && $card->due_at ? $card->due_at->copy()->addDays($shift) : null,
+            'due_all_day' => $card->due_all_day, 'user_id' => $to->owner_id, 'cover_color' => $card->cover_color,
+            'checklist_total' => $card->checklist_total, 'created_at' => $now, 'updated_at' => $now,
+        ])->all());
+        $copies = $this->db->table('corkboard_cards')->where('board_id', $to->id)->where('id', '>', $last)->orderBy('id')->pluck('id')->all();
+
+        $pivot = $rows = [];
+        foreach ($chunk as $i => $card) {
+            $copy = (int) $copies[$i];
+            foreach ($labels[$card->id] ?? [] as $row) {
+                if (isset($labelMap[$row->label_id])) {
+                    $pivot[] = ['card_id' => $copy, 'label_id' => $labelMap[$row->label_id]];
+                }
+            }
+            foreach ($items[$card->id] ?? [] as $item) {
+                $rows[] = ['card_id' => $copy, 'text' => $item->text, 'is_done' => false, 'position' => $item->position, 'created_at' => $now, 'updated_at' => $now];
+            }
+        }
+        $pivot && $this->db->table('corkboard_card_label')->insert($pivot);
+        $rows && $this->db->table('corkboard_checklist')->insert($rows);
     }
 
     public function delete(Board $board, User $actor): void

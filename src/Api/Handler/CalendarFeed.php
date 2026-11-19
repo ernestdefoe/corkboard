@@ -1,6 +1,6 @@
 <?php
 
-namespace ErnestDefoe\Corkboard\Api;
+namespace ErnestDefoe\Corkboard\Api\Handler;
 
 use Carbon\Carbon;
 use ErnestDefoe\Corkboard\Card;
@@ -8,20 +8,18 @@ use Flarum\Http\UrlGenerator;
 use Flarum\Settings\SettingsRepositoryInterface;
 use Flarum\User\User;
 use Illuminate\Database\ConnectionInterface;
-use Illuminate\Support\Str;
 use Laminas\Diactoros\Response;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
- * GET  /corkboard/feed-token          the viewer's private calendar link, or null before they make one
- * POST /corkboard/feed-token          make one (a new one: the old link stops working)
- * GET  /corkboard/feed/{token}        the calendar: due dates of the cards assigned to its owner
+ * GET /api/corkboard/feed/{token}   the calendar: due dates of the cards assigned to the link's owner,
+ * as they may see them. No sign-in: the 40-character token is the key.
  *
  * 🚨 No ".ics" on the route: nginx serves anything ending in a file extension from disk and PHP
  * never sees it. Calendar apps don't need the extension; the Content-Type says what it is.
  */
-class FeedController extends Controller
+class CalendarFeed extends Handler
 {
     public function __construct(
         private readonly ConnectionInterface $db,
@@ -30,36 +28,7 @@ class FeedController extends Controller
     ) {
     }
 
-    /** @return array<string, string|null> a GET changes nothing: an image tag on another site can't make one */
-    protected function token(ServerRequestInterface $request, User $actor): array
-    {
-        $actor->assertRegistered();
-        $token = $this->db->table('corkboard_feed_tokens')->where('user_id', $actor->id)->value('token');
-
-        return ['url' => $token ? $this->url->to('api')->route('corkboard.feed.ics', ['token' => $token]) : null];
-    }
-
-    /** @return array<string, string> */
-    protected function renewToken(ServerRequestInterface $request, User $actor): array
-    {
-        $actor->assertRegistered();
-
-        return ['url' => $this->url->to('api')->route('corkboard.feed.ics', ['token' => $this->renew($actor)])];
-    }
-
-    private function renew(User $actor): string
-    {
-        $token = Str::random(40);
-        $this->db->table('corkboard_feed_tokens')->upsert(
-            [['user_id' => $actor->id, 'token' => $token, 'created_at' => Carbon::now()]],
-            ['user_id'],
-            ['token', 'created_at']
-        );
-
-        return $token;
-    }
-
-    protected function ics(ServerRequestInterface $request, User $actor): ResponseInterface
+    protected function respond(ServerRequestInterface $request, User $actor): ResponseInterface
     {
         $token = (string) ($request->getAttribute('routeParameters', [])['token'] ?? '');
         $owner = strlen($token) === 40 ? $this->db->table('corkboard_feed_tokens')->where('token', $token)->value('user_id') : null;

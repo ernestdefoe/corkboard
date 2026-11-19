@@ -6,23 +6,11 @@ import Link from 'flarum/common/components/Link';
 import LoadingIndicator from 'flarum/common/components/LoadingIndicator';
 import classList from 'flarum/common/utils/classList';
 import type Mithril from 'mithril';
-import { boardUrl, call, due, t, tx } from '../util';
+import { boardUrl, call, cardList, due, t, tx, type ListedCard } from '../util';
 import { IndexSidebar, PageStructure } from './core';
 import { PRIORITY_CLASS } from './CardFace';
 
-export interface ListCard {
-  id: number;
-  title: string;
-  priority: string;
-  dueAt: string | null;
-  dueAllDay: boolean;
-  completedAt: string | null;
-  boardId: number;
-  board: string;
-  boardSlug: string;
-  boardColor: string;
-  column: string;
-}
+export type ListCard = ListedCard;
 
 /** /corkboard/mine: every card the viewer is on, by board, and their private calendar link. */
 export default class MyCardsPage extends Page {
@@ -43,7 +31,7 @@ export default class MyCardsPage extends Page {
 
   load(): void {
     this.loading = true;
-    call('GET', '/my-cards', undefined, { limit: 100, owned: this.owned ? 1 : undefined, done: this.done ? 1 : undefined }, true)
+    cardList({ mine: 1, owned: this.owned ? 1 : undefined, done: this.done ? 1 : undefined }, 100)
       .then((answer) => {
         this.cards = answer.cards;
         this.total = answer.total;
@@ -91,7 +79,7 @@ export default class MyCardsPage extends Page {
             [...groups.values()].map((list) => (
               <section className="CorkboardMyCardsPage-board" style={{ '--board-color': list[0].boardColor }}>
                 <h2>
-                  <Link href={boardUrl({ id: list[0].boardId, slug: list[0].boardSlug })}>{list[0].board}</Link>
+                  <Link href={boardUrl({ id: list[0].boardId, slug: list[0].boardSlug })}>{list[0].boardTitle}</Link>
                 </h2>
                 <ul className="CorkboardCardList">{list.map((c) => cardRow(c))}</ul>
               </section>
@@ -155,7 +143,7 @@ export function cardRow(c: ListCard): Mithril.Children {
           ) : null}
           {c.title}
         </span>
-        <span className="CorkboardCardList-where">{c.column}</span>
+        <span className="CorkboardCardList-where">{c.columnTitle}</span>
         {when ? <span className={'CorkboardDue is-' + when.state}>{when.text}</span> : null}
       </Link>
     </li>

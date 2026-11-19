@@ -52,6 +52,9 @@ export function registerFof(): void {
 }
 
 export function registerPageBuilder(): void {
+  // Only when Page Builder is enabled (as extend.php registers its blocks), never a stray queue.
+  const flarum = (globalThis as any).flarum;
+  if (!flarum?.extensions || !('ernestdefoe-page-builder' in flarum.extensions)) return;
   // Page Builder 3.10+ drains this queue on every lookup, so initializer order doesn't matter.
   const blocks = WIDGETS.map(({ kind }) => ({
     type: `corkboard-${kind}`,

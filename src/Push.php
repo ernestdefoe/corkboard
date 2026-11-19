@@ -12,7 +12,7 @@ use Illuminate\Database\ConnectionInterface;
 use Psr\Log\LoggerInterface;
 
 /**
- * Tells open boards "you're behind" through flarum/realtime, when it's installed.
+ * Tells open boards "you're behind" through flarum/realtime, when it's enabled.
  *
  * Only ids and the version travel, never a title: a browser that gets one refetches through the
  * API, so the visibility rule is the API's and a misrouted push can't leak anything.
@@ -35,13 +35,15 @@ class Push
         private readonly Settings $settings,
         private readonly LoggerInterface $logger,
         private readonly Queue $queue,
+        private readonly Extensions $extensions,
     ) {
     }
 
+    /** flarum/realtime is enabled (Integration in extend.php) and has bound its Pusher client. */
     public function available(): bool
     {
-        // flarum/realtime binds its Pusher client; bound() never autoloads the class.
-        return $this->container->bound(\Pusher\Pusher::class);
+        // bound() never autoloads the class.
+        return $this->extensions->realtime() && $this->container->bound(\Pusher\Pusher::class);
     }
 
     public function board(Board $board, ?User $actor, ?int $cardId): void

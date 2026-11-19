@@ -9,57 +9,17 @@ export const PRIORITY_CLASS: Record<string, string> = { urgent: 'is-urgent', hig
 export const CardFace = {
   view(vnode: Mithril.Vnode<{ card: SlimCard; data: BoardPayload; moving?: string | null }>) {
     const { card, data, moving } = vnode.attrs;
-    const labels = card.labelIds.map((id) => data.labels.find((l) => l.id === id)).filter(Boolean) as BoardPayload['labels'];
-    const when = due(card);
     return [
       card.coverColor ? <div className="CorkboardCard-cover" style={{ background: card.coverColor }} /> : null,
       moving ? <div className="CorkboardCard-moving">{t('board.moving', { name: moving })}</div> : null,
-      labels.length ? (
-        <div className="CorkboardCard-labels">
-          {labels.map((l) => (
-            <span className="CorkboardLabel" style={{ background: l.color, color: onColor(l.color) }} title={l.name}>
-              {l.name || ' '}
-            </span>
-          ))}
-        </div>
-      ) : null,
+      labels(card, data),
       <div className="CorkboardCard-title">
         {card.completedAt ? <Icon name="fas fa-check" className="CorkboardCard-check" /> : null}
         {card.title}
       </div>,
       <div className="CorkboardCard-meta">
-        {when ? (
-          <span className={'CorkboardDue is-' + when.state}>
-            <Icon name="far fa-calendar" />
-            {when.text}
-          </span>
-        ) : null}
-        {card.priority !== 'none' ? (
-          <span className={'CorkboardPriority ' + PRIORITY_CLASS[card.priority]}>
-            <span className="CorkboardPriority-dot" />
-            {t('priority.' + card.priority)}
-          </span>
-        ) : null}
-        {card.checklistTotal ? (
-          <span
-            className={'CorkboardCard-stat' + (card.checklistDone === card.checklistTotal ? ' is-complete' : '')}
-            title={tx('card.checklist_count', { done: card.checklistDone, total: card.checklistTotal })}
-          >
-            <Icon name="far fa-square-check" />
-            {card.checklistDone}/{card.checklistTotal}
-          </span>
-        ) : null}
-        {card.commentCount ? (
-          <span className="CorkboardCard-stat">
-            <Icon name="far fa-comment" />
-            {card.commentCount}
-          </span>
-        ) : null}
-        {card.discussionId ? (
-          <span className="CorkboardCard-stat" title={tx('card.has_discussion')}>
-            <Icon name="fas fa-link" />
-          </span>
-        ) : null}
+        {dueAndPriority(card)}
+        {stats(card)}
         <span className="CorkboardCard-people">
           {card.assigneeIds.slice(0, 3).map((id) => (
             <Avatar user={data.users[id]} size={22} ring />
@@ -70,3 +30,61 @@ export const CardFace = {
     ];
   },
 };
+
+function labels(card: SlimCard, data: BoardPayload): Mithril.Children {
+  const list = card.labelIds.map((id) => data.labels.find((l) => l.id === id)).filter(Boolean) as BoardPayload['labels'];
+  if (!list.length) return null;
+  return (
+    <div className="CorkboardCard-labels">
+      {list.map((l) => (
+        <span className="CorkboardLabel" style={{ background: l.color, color: onColor(l.color) }} title={l.name}>
+          {l.name || ' '}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function dueAndPriority(card: SlimCard): Mithril.Children {
+  const when = due(card);
+  return [
+    when ? (
+      <span className={'CorkboardDue is-' + when.state}>
+        <Icon name="far fa-calendar" />
+        {when.text}
+      </span>
+    ) : null,
+    card.priority !== 'none' ? (
+      <span className={'CorkboardPriority ' + PRIORITY_CLASS[card.priority]}>
+        <span className="CorkboardPriority-dot" />
+        {t('priority.' + card.priority)}
+      </span>
+    ) : null,
+  ];
+}
+
+/** The checklist, comment and linked-discussion counts. */
+function stats(card: SlimCard): Mithril.Children {
+  return [
+    card.checklistTotal ? (
+      <span
+        className={'CorkboardCard-stat' + (card.checklistDone === card.checklistTotal ? ' is-complete' : '')}
+        title={tx('card.checklist_count', { done: card.checklistDone, total: card.checklistTotal })}
+      >
+        <Icon name="far fa-square-check" />
+        {card.checklistDone}/{card.checklistTotal}
+      </span>
+    ) : null,
+    card.commentCount ? (
+      <span className="CorkboardCard-stat">
+        <Icon name="far fa-comment" />
+        {card.commentCount}
+      </span>
+    ) : null,
+    card.discussionId ? (
+      <span className="CorkboardCard-stat" title={tx('card.has_discussion')}>
+        <Icon name="fas fa-link" />
+      </span>
+    ) : null,
+  ];
+}

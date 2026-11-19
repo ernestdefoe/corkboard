@@ -3,7 +3,7 @@ import Button from 'flarum/common/components/Button';
 import Select from 'flarum/common/components/Select';
 import classList from 'flarum/common/utils/classList';
 import type Mithril from 'mithril';
-import { call, t, tx } from '../util';
+import { t, tx, write } from '../util';
 import type { BoardState } from './BoardState';
 
 export interface MoveCardModalAttrs extends IFormModalAttrs {
@@ -80,7 +80,7 @@ export default class MoveCardModal extends FormModal<MoveCardModalAttrs> {
       afterId: this.place === 'top' ? null : list.length ? list[list.length - 1].id : null,
     };
     this.loading = true;
-    call('PATCH', `/cards/${this.attrs.cardId}`, body)
+    write('PATCH', 'cards', this.attrs.cardId, body)
       .then((answer) => {
         s.card(answer);
         this.hide();

@@ -69,11 +69,6 @@ class Checklist
 
     private function text(mixed $value): string
     {
-        $text = trim(preg_replace('/\s+/u', ' ', (string) $value) ?? '');
-        if ($text === '' || mb_strlen($text) > 300) {
-            throw Refusal::because('checklist_text', 'text');
-        }
-
-        return $text;
+        return Input::line($value, 300, 'checklist_text', 'text');
     }
 }
